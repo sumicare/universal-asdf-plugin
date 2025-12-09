@@ -1,0 +1,398 @@
+name: Test
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+env:
+  GO_VERSION: "1.25"
+
+jobs:
+  prepare:
+    name: Prepare tool versions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache asdf downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.asdf/downloads
+          key: ${{ runner.os }}-asdf-downloads-${{ hashFiles('.tool-versions') }}
+          restore-keys: |
+            ${{ runner.os }}-asdf-downloads-
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            **/go.sum
+
+      - name: Build binary
+        run: go build -o universal-asdf-plugin .
+
+      - name: Bootstrap asdf
+        run: |
+          rm -f .tool-sums
+          ./universal-asdf-plugin install-plugin asdf
+          export ASDF_INSTALL_VERSION=$(grep '^asdf ' .tool-versions | awk '{print $2}')
+          export ASDF_DOWNLOAD_PATH="$HOME/.asdf/downloads/asdf/$ASDF_INSTALL_VERSION"
+          export ASDF_INSTALL_PATH="$HOME/.asdf/installs/asdf/$ASDF_INSTALL_VERSION"
+          mkdir -p "$ASDF_DOWNLOAD_PATH" "$ASDF_INSTALL_PATH" "$HOME/.asdf/shims"
+          ./universal-asdf-plugin download asdf
+          ./universal-asdf-plugin install asdf
+          ln -sf "$ASDF_INSTALL_PATH/bin/asdf" "$HOME/.asdf/shims/asdf"
+          echo "$HOME/.asdf/shims" >> $GITHUB_PATH
+
+      - name: Install plugins
+        run: ./universal-asdf-plugin install-plugin
+
+  # Unit tests for core packages
+  test-core:
+    name: Core Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ONLINE: "1"
+    steps:
+      - &checkout-step
+        uses: actions/checkout@v6
+
+      - &cache-asdf-step
+        name: Cache asdf downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.asdf/downloads
+          key: ${{ runner.os }}-asdf-downloads-${{ hashFiles('.tool-versions') }}
+          restore-keys: |
+            ${{ runner.os }}-asdf-downloads-
+
+      - &setup-go-step
+        name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            **/go.sum
+
+      - name: Run core tests
+        id: test
+        run: |
+          go test -v -race -count=1 -coverprofile=coverage-core.out \
+            ./plugins/asdf \
+            ./plugins/github \
+            ./plugins/github/mock
+
+      - name: Clean cache on failure
+        if: failure() && steps.test.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh cache delete "${{ runner.os }}-asdf-downloads-" --repo ${{ github.repository }} || true
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: coverage-core
+          path: coverage-core.out
+          retention-days: 7
+
+  # Main package tests
+  test-main:
+    name: Main Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ONLINE: "1"
+    steps:
+      - *checkout-step
+
+      - *cache-asdf-step
+
+      - *setup-go-step
+
+      - name: Run main tests
+        id: test
+        run: go test -v -race -count=1 -coverprofile=coverage-main.out .
+
+      - name: Clean cache on failure
+        if: failure() && steps.test.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh cache delete "${{ runner.os }}-asdf-downloads-" --repo ${{ github.repository }} || true
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: coverage-main
+          path: coverage-main.out
+          retention-days: 7
+
+  # Fan-out plugin tests - each plugin tested individually
+  test-plugins:
+    name: Plugin ${{ matrix.plugin }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    needs: [prepare, test-core, test-main]
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin:
+          - asdf
+          - argo
+          - argocd
+          - argo_rollouts
+          - awscli
+          - aws_nuke
+          - aws_sso_cli
+          - buf
+          - checkov
+          - cmake
+          - cosign
+          - doctl
+          - gcloud
+          - ginkgo
+          - github_cli
+          - gitleaks
+          - gitsign
+          - go
+          - golangci_lint
+          - goreleaser
+          - grype
+          - helm
+          - jq
+          - k9s
+          - kind
+          - ko
+          - kubectl
+          - lazygit
+          - linkerd
+          - nerdctl
+          - nodejs
+          - opentofu
+          - pipx
+          - protoc
+          - protoc_gen_go
+          - protoc_gen_go_grpc
+          - protoc_gen_grpc_web
+          - protolint
+          - python
+          - rust
+          - sccache
+          - shellcheck
+          - shfmt
+          - sops
+          - sqlc
+          - syft
+          - tekton_cli
+          - telepresence
+          - terraform
+          - terragrunt
+          - terrascan
+          - tflint
+          - tfupdate
+          - traefik
+          - trivy
+          - upx
+          - uv
+          - velero
+          - vultr_cli
+          - yq
+          - zig
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache asdf downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.asdf/downloads
+          key: ${{ runner.os }}-asdf-downloads-${{ hashFiles('.tool-versions') }}
+          restore-keys: |
+            ${{ runner.os }}-asdf-downloads-
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            **/go.sum
+
+      - name: Run plugin tests
+        id: test
+        env:
+          # we're skipping ONLINE tests for checkov due to bridgecrew filtering github IP's and returning 403
+          ONLINE: ${{ matrix.plugin == 'checkov' && '0' || '1' }}
+        run: |
+          go test -v -race -count=1 -timeout=10m -coverprofile=coverage-${{ matrix.plugin }}.out \
+            ./plugins/asdf_plugin_${{ matrix.plugin }}/...
+
+      - name: Clean cache on failure
+        if: failure() && steps.test.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh cache delete "${{ runner.os }}-asdf-downloads-" --repo ${{ github.repository }} || true
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: coverage-${{ matrix.plugin }}
+          path: coverage-${{ matrix.plugin }}.out
+          retention-days: 7
+
+  # Merge coverage reports
+  coverage:
+    name: Coverage Report
+    runs-on: ubuntu-latest
+    needs: [test-plugins]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            **/go.sum
+
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          merge-multiple: true
+
+      - name: Merge coverage files
+        run: |
+          go install github.com/wadey/gocovmerge@latest
+          gocovmerge coverage-*.out > coverage.out
+
+      - name: Generate coverage report
+        run: go tool cover -func=coverage.out
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.out
+          fail_ci_if_error: false
+          verbose: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload combined coverage
+        uses: actions/upload-artifact@v5
+        with:
+          name: coverage-combined
+          path: coverage.out
+          retention-days: 7
+
+  # Build check
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            **/go.sum
+
+      - name: Build
+        run: go build -v .
+
+      - name: Run goreleaser check
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: check
+
+  # Lint check
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: [prepare]
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache asdf downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.asdf/downloads
+          key: ${{ runner.os }}-asdf-downloads-${{ hashFiles('.tool-versions') }}
+          restore-keys: |
+            ${{ runner.os }}-asdf-downloads-
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            **/go.sum
+
+      - name: Build universal-asdf-plugin
+        run: go build -o universal-asdf-plugin .
+
+      - name: Install golangci-lint via universal-asdf-plugin
+        run: |
+          ASDF_DATA_DIR="${ASDF_DATA_DIR:-$HOME/.asdf}"
+          mkdir -p "$ASDF_DATA_DIR/downloads" "$ASDF_DATA_DIR/installs" "$ASDF_DATA_DIR/shims"
+
+          rm -f .tool-sums
+          # Determine golangci-lint version from .tool-versions
+          export ASDF_PLUGIN_NAME=golangci-lint
+          export ASDF_INSTALL_VERSION=$(grep '^golangci-lint ' .tool-versions | awk '{print $2}')
+          export ASDF_DOWNLOAD_PATH="$ASDF_DATA_DIR/downloads/golangci-lint/$ASDF_INSTALL_VERSION"
+          export ASDF_INSTALL_PATH="$ASDF_DATA_DIR/installs/golangci-lint/$ASDF_INSTALL_VERSION"
+          mkdir -p "$ASDF_DOWNLOAD_PATH" "$ASDF_INSTALL_PATH"
+
+          # Install golangci-lint using our asdf plugin implementation
+          ./universal-asdf-plugin install-plugin golangci-lint
+          ./universal-asdf-plugin download golangci-lint
+          ./universal-asdf-plugin install golangci-lint
+
+          # Create shim for golangci-lint
+          ln -sf "$ASDF_INSTALL_PATH/bin/golangci-lint" "$ASDF_DATA_DIR/shims/golangci-lint"
+
+      - name: Run golangci-lint from shim
+        run: $HOME/.asdf/shims/golangci-lint run

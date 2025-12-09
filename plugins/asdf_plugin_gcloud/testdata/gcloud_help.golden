@@ -1,0 +1,12 @@
+Google Cloud SDK (gcloud) - Command-line interface for Google Cloud Platform.
+This plugin downloads the Google Cloud SDK from Google Cloud Storage.
+
+Requires Python 3.8+ to be installed and available in PATH.
+
+Environment variables:
+  CLOUDSDK_CONFIG - Override gcloud config directory
+  CLOUDSDK_PYTHON - Override Python interpreter path
+
+Homepage: https://cloud.google.com/sdk
+Documentation: https://cloud.google.com/sdk/docs
+Downloads: https://cloud.google.com/sdk/docs/install

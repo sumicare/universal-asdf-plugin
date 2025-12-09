@@ -1,0 +1,8 @@
+protoc-gen-go-grpc - protoc-gen-go-grpc - gRPC Go protoc plugin
+
+No additional dependencies required
+
+No additional configuration required
+
+Documentation: https://grpc.io/docs/languages/go/
+GitHub: https://github.com/grpc/grpc-go

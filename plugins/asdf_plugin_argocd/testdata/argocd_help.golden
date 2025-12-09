@@ -1,0 +1,8 @@
+argocd - ArgoCD - Declarative GitOps CD for Kubernetes
+
+No additional dependencies required
+
+No additional configuration required
+
+Documentation: https://argoproj.github.io/argocd/
+GitHub: https://github.com/argoproj/argo-cd

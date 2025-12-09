@@ -1,0 +1,9 @@
+Ginkgo - A BDD-style Go testing framework.
+Ginkgo is built from the official source archive using Go, which requires Go to be installed.
+
+Requires Go to be installed and available in PATH.
+
+No additional configuration required.
+
+Homepage: https://onsi.github.io/ginkgo/
+Source: https://github.com/onsi/ginkgo

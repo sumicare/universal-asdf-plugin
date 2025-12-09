@@ -1,0 +1,13 @@
+Rust - A language empowering everyone to build reliable and efficient software.
+This plugin uses rustup to install Rust toolchains.
+
+Requires curl and a C compiler (gcc/clang) for some crates.
+
+Environment variables:
+  ASDF_RUST_PROFILE - Rustup profile to use (default, minimal, complete)
+  ASDF_CRATE_DEFAULT_PACKAGES_FILE - Path to default cargo crates file
+
+Homepage: https://www.rust-lang.org/
+Documentation: https://doc.rust-lang.org/
+Rustup: https://rustup.rs/
+Source: https://github.com/rust-lang/rust

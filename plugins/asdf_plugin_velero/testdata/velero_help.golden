@@ -1,0 +1,8 @@
+velero - Velero - Backup and migrate Kubernetes resources
+
+No additional dependencies required
+
+No additional configuration required
+
+Documentation: https://velero.io/
+GitHub: https://github.com/vmware-tanzu/velero

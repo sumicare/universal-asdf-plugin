@@ -1,0 +1,8 @@
+kubectl - Kubectl - Kubernetes command-line tool
+
+No additional dependencies required
+
+No additional configuration required
+
+Documentation: https://kubernetes.io/docs/reference/kubectl/
+GitHub: https://github.com/kubernetes/kubernetes

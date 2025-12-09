@@ -1,0 +1,8 @@
+cosign - Cosign container signing
+
+No additional dependencies required
+
+No additional configuration required
+
+Documentation: https://docs.sigstore.dev/cosign/
+GitHub: https://github.com/sigstore/cosign

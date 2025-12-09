@@ -1,0 +1,8 @@
+protoc-gen-grpc-web - protoc-gen-grpc-web - gRPC-Web protoc plugin
+
+No additional dependencies required
+
+No additional configuration required
+
+Documentation: https://github.com/grpc/grpc-web
+GitHub: https://github.com/grpc/grpc-web

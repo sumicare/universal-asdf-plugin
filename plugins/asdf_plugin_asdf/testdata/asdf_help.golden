@@ -1,0 +1,108 @@
+asdf - Extendable version manager
+
+asdf is a CLI tool that manages multiple language runtime versions on a
+per-project basis. This plugin enables self-management of asdf, allowing
+you to bootstrap asdf using universal-asdf-plugin.
+
+BOOTSTRAP USAGE:
+  # Install asdf plugin and bootstrap
+  universal-asdf-plugin install-plugin asdf
+
+  # Or add to .tool-versions and install
+  echo "asdf 0.18.0" >> .tool-versions
+  universal-asdf-plugin install asdf
+
+After installation, configure your shell to use asdf shims.
+
+
+
+SHELL CONFIGURATION:
+
+After installing asdf, you must configure your shell to use asdf shims.
+Add the appropriate configuration to your shell's RC file:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BASH (~/.bashrc or ~/.bash_profile):
+
+  # Add shims to PATH
+  export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
+
+  # Optional: Enable completions
+  . <(asdf completion bash)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ZSH (~/.zshrc):
+
+  # Add shims to PATH
+  export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
+
+  # Optional: Enable completions
+  mkdir -p "${ASDF_DATA_DIR:-$HOME/.asdf}/completions"
+  asdf completion zsh > "${ASDF_DATA_DIR:-$HOME/.asdf}/completions/_asdf"
+  fpath=(${ASDF_DATA_DIR:-$HOME/.asdf}/completions $fpath)
+  autoload -Uz compinit && compinit
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+FISH (~/.config/fish/config.fish):
+
+  # ASDF configuration code
+  if test -z $ASDF_DATA_DIR
+      set _asdf_shims "$HOME/.asdf/shims"
+  else
+      set _asdf_shims "$ASDF_DATA_DIR/shims"
+  end
+
+  if not contains $_asdf_shims $PATH
+      set -gx --prepend PATH $_asdf_shims
+  end
+  set --erase _asdf_shims
+
+  # Optional: Enable completions
+  asdf completion fish > ~/.config/fish/completions/asdf.fish
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+POWERSHELL (~/.config/powershell/profile.ps1):
+
+  # Determine the location of the shims directory
+  if ($null -eq $ASDF_DATA_DIR -or $ASDF_DATA_DIR -eq '') {
+      $_asdf_shims = "${env:HOME}/.asdf/shims"
+  } else {
+      $_asdf_shims = "$ASDF_DATA_DIR/shims"
+  }
+  $env:PATH = "${_asdf_shims}:${env:PATH}"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+NUSHELL (~/.config/nushell/config.nu):
+
+  let shims_dir = (
+      if ($env | get --ignore-errors ASDF_DATA_DIR | is-empty) {
+          $env.HOME | path join '.asdf'
+      } else {
+          $env.ASDF_DATA_DIR
+      } | path join 'shims'
+  )
+  $env.PATH = (
+      $env.PATH | split row (char esep)
+      | where { |p| $p != $shims_dir }
+      | prepend $shims_dir
+  )
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CUSTOM DATA DIRECTORY (optional):
+
+  To use a custom directory instead of ~/.asdf, set ASDF_DATA_DIR:
+
+  export ASDF_DATA_DIR="/your/custom/data/dir"
+
+  Add this BEFORE the PATH configuration in your shell RC file.
+
+Homepage:     https://asdf-vm.com
+Repository:   https://github.com/asdf-vm/asdf
+Releases:     https://github.com/asdf-vm/asdf/releases
+Getting Started: https://asdf-vm.com/guide/getting-started.html

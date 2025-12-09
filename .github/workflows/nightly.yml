@@ -1,0 +1,111 @@
+name: Nightly
+
+on:
+  schedule:
+    # Run daily at 9:00 AM Ukraine time (07:00 UTC)
+    - cron: "0 7 * * *"
+
+env:
+  GO_VERSION: "1.25"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  nightly:
+    name: Nightly (Latest Tools)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache asdf downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.asdf/downloads
+          key: ${{ runner.os }}-asdf-downloads-${{ hashFiles('.tool-versions') }}
+          restore-keys: |
+            ${{ runner.os }}-asdf-downloads-
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            **/go.sum
+
+      - name: Build binary
+        run: go build -o universal-asdf-plugin .
+
+      - name: Update .tool-versions to latest
+        run: ./universal-asdf-plugin update-tool-versions
+
+      - name: Bootstrap asdf
+        run: |
+          rm -f .tool-sums
+          ./universal-asdf-plugin install-plugin asdf
+          export ASDF_INSTALL_VERSION=$(grep '^asdf ' .tool-versions | awk '{print $2}')
+          export ASDF_DOWNLOAD_PATH="$HOME/.asdf/downloads/asdf/$ASDF_INSTALL_VERSION"
+          export ASDF_INSTALL_PATH="$HOME/.asdf/installs/asdf/$ASDF_INSTALL_VERSION"
+          mkdir -p "$ASDF_DOWNLOAD_PATH" "$ASDF_INSTALL_PATH" "$HOME/.asdf/shims"
+          ./universal-asdf-plugin download asdf
+          ./universal-asdf-plugin install asdf
+          ln -sf "$ASDF_INSTALL_PATH/bin/asdf" "$HOME/.asdf/shims/asdf"
+          echo "$HOME/.asdf/shims" >> $GITHUB_PATH
+
+      - name: Run selftest with latest versions
+        run: ./scripts/selftest.sh
+
+      - name: Verify checksums generated
+        run: |
+          if [ ! -f .tool-sums ]; then
+            echo "Error: .tool-sums not generated"
+            exit 1
+          fi
+          echo "Generated checksums for latest versions:"
+          cat .tool-sums
+
+      - name: Update golden files
+        run: ./scripts/test.sh --update
+
+      - name: Upload nightly artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: nightly-tool-versions
+          path: |
+            .tool-versions
+            .tool-sums
+            **/testdata/*.golden
+          retention-days: 7
+
+      - name: Generate PR body with diffs
+        run: |
+          {
+            echo "Fresh `.tool-versions`, `.tool-sums` and Goldie snapshots with the latest tool versions.";
+            echo;
+            echo "## Changes";
+            echo;
+            echo "```diff";
+            git diff -- .tool-versions .tool-sums || true;
+            echo "```";
+          } > nightly-pr-body.md
+
+      - name: Create pull request for updated tool versions
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update tool versions (nightly)"
+          branch: chore/update-tool-versions-nightly
+          title: "chore: update tool versions (nightly)"
+          body-path: nightly-pr-body.md
+          add-paths: |
+            .tool-versions
+            .tool-sums
+            **/testdata/*.golden

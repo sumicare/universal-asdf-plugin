@@ -1,0 +1,13 @@
+AWS CLI - The AWS Command Line Interface.
+This plugin downloads pre-built AWS CLI v2 binaries.
+
+Linux: glibc, groff, less
+macOS: Rosetta 2 (for Apple Silicon)
+
+Environment variables:
+  AWS_CONFIG_FILE - Override AWS config file location
+  AWS_SHARED_CREDENTIALS_FILE - Override credentials file location
+
+Homepage: https://aws.amazon.com/cli/
+Documentation: https://docs.aws.amazon.com/cli/
+Source: https://github.com/aws/aws-cli
