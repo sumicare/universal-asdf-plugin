@@ -1,3 +1,0 @@
-GOBIN=/tmp/install/bin
-GOPATH=/tmp/install/packages
-GOROOT=/tmp/install/go

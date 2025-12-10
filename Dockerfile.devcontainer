@@ -101,7 +101,7 @@ COPY --chown=${UID}:${GID} --chmod=0644 .tool-versions ${HOMEDIR}/.tool-versions
 RUN --mount=type=cache,id=asdf-installs-${TARGETARCH},target=${ASDF_DATA_DIR}/installs,uid=${UID},gid=${GID},sharing=locked \
     set -eux ; \
     mkdir -p "${ASDF_DATA_DIR}/plugins" "${ASDF_DATA_DIR}/installs" "${ASDF_DATA_DIR}/shims" "${ASDF_DATA_DIR}/downloads" "${HOMEDIR}/.local/bin" ; \
-    UNIVERSAL_ASDF_VERSION="1.0.0" ; \
+    UNIVERSAL_ASDF_VERSION="1.1.0" ; \
     UNIVERSAL_ASDF_ARCHIVE="universal-asdf-plugin_${UNIVERSAL_ASDF_VERSION}_linux-${TARGETARCH}.tar.gz" ; \
     curl -sSLo "${UNIVERSAL_ASDF_ARCHIVE}" "https://github.com/sumicare/universal-asdf-plugin/releases/download/v${UNIVERSAL_ASDF_VERSION}/${UNIVERSAL_ASDF_ARCHIVE}" ; \
     curl -sSLo universal-asdf-plugin_${UNIVERSAL_ASDF_VERSION}_SHA256SUMS "https://github.com/sumicare/universal-asdf-plugin/releases/download/v${UNIVERSAL_ASDF_VERSION}/universal-asdf-plugin_${UNIVERSAL_ASDF_VERSION}_SHA256SUMS" ; \

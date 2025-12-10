@@ -21,102 +21,127 @@ import (
 	"net/http"
 	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	"github.com/stretchr/testify/require"
 )
 
-// TestMockServerSuite runs the GitHub mock server Ginkgo test suite.
-func TestMockServerSuite(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "GitHub Mock Server Suite")
-}
+func TestMockServer(t *testing.T) {
+	t.Parallel()
 
-var _ = Describe("GitHub Mock Server", func() {
-	var server *Server
+	testRepoDataEndpoint := func(t *testing.T, server *Server, setup func(*Server), endpoint string, expectedLen int) {
+		t.Helper()
 
-	BeforeEach(func() {
-		server = NewServer()
+		setup(server)
+
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL()+endpoint, http.NoBody)
+		require.NoError(t, err)
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_ = resp.Body.Close()
+		})
+
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+
+		var items []json.RawMessage
+		require.NoError(t, json.Unmarshal(body, &items))
+		require.Len(t, items, expectedLen)
+	}
+
+	t.Run("NewServer creates a server with valid URL", func(t *testing.T) {
+		t.Parallel()
+
+		server := NewServer()
+		t.Cleanup(server.Close)
+
+		require.NotNil(t, server)
+		require.NotEmpty(t, server.URL())
+		require.NotNil(t, server.HTTPServer)
 	})
 
-	AfterEach(func() {
-		if server != nil {
-			server.Close()
+	t.Run("AddTags adds tags for a repository", func(t *testing.T) {
+		t.Parallel()
+
+		server := NewServer()
+		t.Cleanup(server.Close)
+
+		testRepoDataEndpoint(
+			t,
+			server,
+			func(s *Server) { s.AddTags("golang", "go", []string{"go1.20.0", "go1.21.0"}) },
+			"/repos/golang/go/git/refs/tags",
+			2,
+		)
+	})
+
+	t.Run("AddReleases adds releases for a repository", func(t *testing.T) {
+		t.Parallel()
+
+		server := NewServer()
+		t.Cleanup(server.Close)
+
+		testRepoDataEndpoint(
+			t,
+			server,
+			func(s *Server) { s.AddReleases("kubernetes", "kubernetes", []string{"v1.28.0", "v1.29.0"}) },
+			"/repos/kubernetes/kubernetes/releases",
+			2,
+		)
+	})
+
+	t.Run("HTTP endpoints", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			path     string
+			expected int
+		}{
+			{
+				name:     "returns 404 for unknown paths",
+				path:     "/unknown/path",
+				expected: http.StatusNotFound,
+			},
+			{
+				name:     "returns 404 for repos without tags",
+				path:     "/repos/unknown/repo/git/refs/tags",
+				expected: http.StatusNotFound,
+			},
+			{
+				name:     "returns 404 for repos without releases",
+				path:     "/repos/unknown/repo/releases",
+				expected: http.StatusNotFound,
+			},
+		}
+
+		for i := range tests {
+			tt := tests[i]
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				server := NewServer()
+				t.Cleanup(server.Close)
+
+				req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL()+tt.path, http.NoBody)
+				require.NoError(t, err)
+
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err)
+				t.Cleanup(func() {
+					_ = resp.Body.Close()
+				})
+
+				require.Equal(t, tt.expected, resp.StatusCode)
+			})
 		}
 	})
 
-	Describe("NewServer", func() {
-		It("creates a server with valid URL", func() {
-			Expect(server).NotTo(BeNil())
-			Expect(server.URL()).NotTo(BeEmpty())
-			Expect(server.HTTPServer).NotTo(BeNil())
-		})
+	t.Run("extractRepoPath extracts owner/repo from path", func(t *testing.T) {
+		t.Parallel()
+
+		require.Equal(t, "golang/go", extractRepoPath("/repos/golang/go/git/refs/tags", "/git/refs/tags"))
+		require.Equal(t, "k8s/k8s", extractRepoPath("/repos/k8s/k8s/releases", "/releases"))
+		require.Equal(t, "/invalid", extractRepoPath("/invalid", ""))
 	})
-
-	testRepoDataEndpoint := func(setup func(*Server), endpoint string, expectedLen int) {
-		setup(server)
-
-		resp, err := http.Get(server.URL() + endpoint)
-		Expect(err).NotTo(HaveOccurred())
-		defer resp.Body.Close()
-
-		Expect(resp.StatusCode).To(Equal(http.StatusOK))
-
-		body, err := io.ReadAll(resp.Body)
-		Expect(err).NotTo(HaveOccurred())
-
-		var items []json.RawMessage
-		err = json.Unmarshal(body, &items)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(items).To(HaveLen(expectedLen))
-	}
-
-	Describe("AddTags", func() {
-		It("adds tags for a repository", func() {
-			testRepoDataEndpoint(
-				func(s *Server) { s.AddTags("golang", "go", []string{"go1.20.0", "go1.21.0"}) },
-				"/repos/golang/go/git/refs/tags", 2)
-		})
-	})
-
-	Describe("AddReleases", func() {
-		It("adds releases for a repository", func() {
-			testRepoDataEndpoint(
-				func(s *Server) { s.AddReleases("kubernetes", "kubernetes", []string{"v1.28.0", "v1.29.0"}) },
-				"/repos/kubernetes/kubernetes/releases", 2)
-		})
-	})
-
-	Describe("HTTP endpoints", func() {
-		It("returns 404 for unknown paths", func() {
-			resp, err := http.Get(server.URL() + "/unknown/path")
-			Expect(err).NotTo(HaveOccurred())
-			defer resp.Body.Close()
-
-			Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
-		})
-
-		It("returns 404 for repos without tags", func() {
-			resp, err := http.Get(server.URL() + "/repos/unknown/repo/git/refs/tags")
-			Expect(err).NotTo(HaveOccurred())
-			defer resp.Body.Close()
-
-			Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
-		})
-
-		It("returns 404 for repos without releases", func() {
-			resp, err := http.Get(server.URL() + "/repos/unknown/repo/releases")
-			Expect(err).NotTo(HaveOccurred())
-			defer resp.Body.Close()
-
-			Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
-		})
-	})
-
-	Describe("extractRepoPath", func() {
-		It("extracts owner/repo from path", func() {
-			Expect(extractRepoPath("/repos/golang/go/git/refs/tags", "/git/refs/tags")).To(Equal("golang/go"))
-			Expect(extractRepoPath("/repos/k8s/k8s/releases", "/releases")).To(Equal("k8s/k8s"))
-			Expect(extractRepoPath("/invalid", "")).To(Equal("/invalid"))
-		})
-	})
-})
+}

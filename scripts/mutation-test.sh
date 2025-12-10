@@ -20,7 +20,7 @@ run_test() {
     local pkg="$1" output
     echo "[INFO] Testing: ${pkg}"
     
-    output=$(gremlins unleash --timeout-coefficient=10 \
+    output=$(gremlins unleash --timeout-coefficient=100 \
         --exclude-files='test_helpers\.go$' \
         --exclude-files='_test\.go$' \
         "${pkg}" 2>&1) || true

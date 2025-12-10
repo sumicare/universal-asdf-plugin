@@ -30,16 +30,16 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/urfave/cli/v2"
+
+	p "github.com/sumicare/universal-asdf-plugin/plugins"
 	"github.com/sumicare/universal-asdf-plugin/plugins/asdf"
 	"github.com/sumicare/universal-asdf-plugin/plugins/asdf/plugins"
-	"github.com/sumicare/universal-asdf-plugin/plugins/asdf_plugin_asdf"
 )
 
 var (
 	// errPluginNameRequired is returned when no plugin name can be determined.
 	errPluginNameRequired = errors.New("plugin name required. Set ASDF_PLUGIN_NAME or specify as argument")
-	// errUnknownCommand is returned for unsupported top-level commands.
-	errUnknownCommand = errors.New("unknown command")
 	// errASDFInstallVersionNotSet is returned when ASDF_INSTALL_VERSION is missing.
 	errASDFInstallVersionNotSet = errors.New("ASDF_INSTALL_VERSION not set")
 	// errASDFDownloadPathNotSet is returned when ASDF_DOWNLOAD_PATH is missing.
@@ -48,6 +48,8 @@ var (
 	errASDFInstallPathNotSet = errors.New("ASDF_INSTALL_PATH not set")
 	// errLegacyFilePathRequired is returned when no legacy file path is provided.
 	errLegacyFilePathRequired = errors.New("legacy file path required")
+	// errAsdfPluginCastFailed is returned when casting to AsdfPlugin fails.
+	errAsdfPluginCastFailed = errors.New("failed to cast to AsdfPlugin")
 	// errChecksumMismatch is returned when a recorded checksum does not match.
 	errChecksumMismatch = errors.New("checksum mismatch")
 
@@ -63,19 +65,467 @@ var (
 // main is the entry point for the universal-asdf-plugins.
 // It initializes the CLI and executes the requested subcommand.
 func main() {
-	if err := run(); err != nil {
+	app := newCLIApp()
+
+	args := reorderFlags(os.Args)
+	if err := app.Run(args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-// run parses command-line arguments and dispatches to the appropriate handler.
-func run() error {
-	if len(os.Args) < 2 {
-		return printUsage()
+// reorderFlags moves command-level flags to appear before positional arguments.
+// This works around urfave/cli's requirement that flags come before args.
+// Keeps the command name in place to avoid triggering global flags.
+func reorderFlags(args []string) []string {
+	if len(args) < 3 {
+		return args
 	}
 
-	pluginName := os.Getenv("ASDF_PLUGIN_NAME")
+	result := make([]string, 0, len(args))
+
+	result = append(result, args[0])
+
+	var cmdIdx int
+	for i := 1; i < len(args); i++ {
+		if !strings.HasPrefix(args[i], "-") {
+			cmdIdx = i
+			break
+		}
+	}
+
+	if cmdIdx == 0 {
+		return args
+	}
+
+	result = append(result, args[1:cmdIdx]...)
+
+	if cmdIdx >= len(args) {
+		return result
+	}
+
+	result = append(result, args[cmdIdx])
+	cmdIdx++
+
+	var (
+		flags       []string
+		positionals []string
+	)
+
+	for i := cmdIdx; i < len(args); i++ {
+		if strings.HasPrefix(args[i], "-") {
+			flags = append(flags, args[i])
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && !strings.Contains(args[i], "=") {
+				i++
+
+				flags = append(flags, args[i])
+			}
+		} else {
+			positionals = append(positionals, args[i])
+		}
+	}
+
+	result = append(result, flags...)
+	result = append(result, positionals...)
+
+	return result
+}
+
+// newCLIApp builds the urfave/cli application.
+func newCLIApp() *cli.App {
+	pluginFlag := &cli.StringFlag{
+		Name:    "plugin",
+		Aliases: []string{"p"},
+		Usage:   "plugin name (e.g., golang, python, nodejs)",
+		EnvVars: []string{"ASDF_PLUGIN_NAME"},
+	}
+
+	versionFlag := &cli.StringFlag{
+		Name:    "version",
+		Aliases: []string{"v"},
+		Usage:   "version to install/download",
+		EnvVars: []string{"ASDF_INSTALL_VERSION"},
+	}
+
+	downloadPathFlag := &cli.StringFlag{
+		Name:    "download-path",
+		Usage:   "path to store downloads",
+		EnvVars: []string{"ASDF_DOWNLOAD_PATH"},
+	}
+
+	installPathFlag := &cli.StringFlag{
+		Name:    "install-path",
+		Usage:   "installation path",
+		EnvVars: []string{"ASDF_INSTALL_PATH"},
+	}
+
+	queryFlag := &cli.StringFlag{
+		Name:    "query",
+		Aliases: []string{"q"},
+		Usage:   "filter for latest-stable (optional)",
+	}
+
+	legacyFileFlag := &cli.StringFlag{
+		Name:    "file",
+		Aliases: []string{"f"},
+		Usage:   "path to legacy version file",
+	}
+
+	return &cli.App{
+		Name:    "universal-asdf-plugin",
+		Usage:   "universal ASDF plugin implementation in Go",
+		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date),
+		Flags: []cli.Flag{
+			pluginFlag,
+		},
+		Commands: []*cli.Command{
+			{
+				Name:  "plugins",
+				Usage: "List available plugins",
+				Action: func(_ *cli.Context) error {
+					fmt.Println("Available plugins:")
+					fmt.Println("  argo          - Argo Workflows CLI")
+					fmt.Println("  argocd        - ArgoCD CLI")
+					fmt.Println("  argo-rollouts - Argo Rollouts CLI")
+					fmt.Println("  aws-nuke      - AWS resource cleanup")
+					fmt.Println("  aws-sso-cli   - AWS SSO CLI")
+					fmt.Println("  awscli        - AWS Command Line Interface")
+					fmt.Println("  buf           - Protocol Buffers tooling")
+					fmt.Println("  checkov       - IaC security scanner")
+					fmt.Println("  cmake         - Build system generator")
+					fmt.Println("  cosign        - Cosign container signing")
+					fmt.Println("  doctl         - DigitalOcean CLI")
+					fmt.Println("  gcloud        - Google Cloud SDK")
+					fmt.Println("  jq            - Command-line JSON processor")
+					fmt.Println("  k9s           - Kubernetes CLI")
+					fmt.Println("  kind          - Kubernetes IN Docker")
+					fmt.Println("  ko            - Container image builder")
+					fmt.Println("  kubectl       - Kubernetes CLI")
+					fmt.Println("  lazygit       - Git TUI")
+					fmt.Println("  linkerd       - Service mesh")
+					fmt.Println("  nerdctl       - Docker-compatible CLI")
+					fmt.Println("  ginkgo        - BDD testing framework")
+					fmt.Println("  github-cli    - GitHub CLI")
+					fmt.Println("  gitsign       - Git commit signing")
+					fmt.Println("  gitleaks      - Detect secrets in code")
+					fmt.Println("  golang        - Go programming language")
+					fmt.Println("  goreleaser    - Release automation")
+					fmt.Println("  golangci-lint - Go linters aggregator")
+					fmt.Println("  grype         - Vulnerability scanner")
+					fmt.Println("  helm          - Kubernetes Package Manager")
+					fmt.Println("  pipx          - Python app installer")
+					fmt.Println("  python        - Python programming language")
+					fmt.Println("  rust          - Rust programming language")
+					fmt.Println("  sccache       - Compiler cache")
+					fmt.Println("  shellcheck    - Shell script analysis")
+					fmt.Println("  shfmt         - Shell script formatter")
+					fmt.Println("  sops          - Secrets management")
+					fmt.Println("  syft          - SBOM generator")
+					fmt.Println("  terraform     - Infrastructure as Code")
+					fmt.Println("  tflint        - Terraform linter")
+					fmt.Println("  trivy         - Container vulnerability scanner")
+					fmt.Println("  terragrunt    - Terraform wrapper")
+					fmt.Println("  terrascan     - IaC security scanner")
+					fmt.Println("  tfupdate      - Terraform updater")
+					fmt.Println("  vultr-cli     - Vultr CLI")
+					fmt.Println("  nodejs        - Node.js runtime")
+					fmt.Println("  opentofu      - Open source Terraform")
+					fmt.Println("  protoc        - Protocol Buffers compiler")
+					fmt.Println("  protoc-gen-go - Go protobuf generator")
+					fmt.Println("  protoc-gen-go-grpc - gRPC Go protoc plugin")
+					fmt.Println("  protoc-gen-grpc-web - gRPC-Web protoc plugin")
+					fmt.Println("  protolint     - Protocol Buffers linter")
+					fmt.Println("  sqlc          - SQL code generator")
+					fmt.Println("  tekton-cli    - Tekton CLI")
+					fmt.Println("  telepresence  - K8s local dev")
+					fmt.Println("  traefik       - Cloud native proxy")
+					fmt.Println("  velero        - Kubernetes backup")
+					fmt.Println("  upx           - Executable packer")
+					fmt.Println("  uv            - Python package manager")
+					fmt.Println("  yq            - YAML processor")
+					fmt.Println("  zig           - Zig programming language")
+
+					return nil
+				},
+			},
+			{
+				Name:  "install-plugin",
+				Usage: "Install this binary as asdf plugin(s)",
+				Action: func(_ *cli.Context) error {
+					return cmdInstallPlugin()
+				},
+			},
+			{
+				Name:  "update-tool-versions",
+				Usage: "Update .tool-versions, replacing 'latest' with actual versions",
+				Action: func(_ *cli.Context) error {
+					return cmdUpdateToolVersions()
+				},
+			},
+			{
+				Name:  "generate-tool-sums",
+				Usage: "Generate tool checksum records",
+				Action: func(_ *cli.Context) error {
+					return cmdGenerateToolSums()
+				},
+			},
+			{
+				Name:  "reshim",
+				Usage: "Regenerate shims for all installed tool versions",
+				Action: func(_ *cli.Context) error {
+					return cmdReshim()
+				},
+			},
+			{
+				Name:  "list-all",
+				Usage: "List all available versions for a plugin",
+				Flags: []cli.Flag{pluginFlag},
+				Action: func(c *cli.Context) error {
+					plugin, _, err := resolvePluginFromContext(c)
+					if err != nil {
+						return err
+					}
+
+					return cmdListAll(c.Context, plugin)
+				},
+			},
+			{
+				Name:  "download",
+				Usage: "Download a specific version (verifies/records checksums)",
+				Flags: []cli.Flag{pluginFlag, versionFlag, downloadPathFlag},
+				Action: func(cliContext *cli.Context) error {
+					plugin, _, err := resolvePluginFromContext(cliContext)
+					if err != nil {
+						return err
+					}
+
+					installVersion := cliContext.String("version")
+					if installVersion == "" {
+						latestVersion, err := plugin.LatestStable(cliContext.Context, "")
+						if err != nil {
+							return fmt.Errorf("resolving latest version: %w", err)
+						}
+
+						installVersion = latestVersion
+					}
+
+					downloadPath := cliContext.String("download-path")
+					if downloadPath == "" {
+						downloadPath = filepath.Join(getAsdfDataDir(), "downloads", plugin.Name(), installVersion)
+					}
+
+					return cmdDownload(cliContext.Context, plugin, installVersion, downloadPath)
+				},
+			},
+			{
+				Name:  "install",
+				Usage: "Install a specific version",
+				Flags: []cli.Flag{pluginFlag, versionFlag, downloadPathFlag, installPathFlag},
+				Action: func(cliContext *cli.Context) error {
+					plugin, _, err := resolvePluginFromContext(cliContext)
+					if err != nil {
+						return err
+					}
+
+					installVersion := cliContext.String("version")
+					if installVersion == "" {
+						latestVersion, err := plugin.LatestStable(cliContext.Context, "")
+						if err != nil {
+							return fmt.Errorf("resolving latest version: %w", err)
+						}
+
+						installVersion = latestVersion
+					}
+
+					installPath := cliContext.String("install-path")
+					if installPath == "" {
+						installPath = filepath.Join(getAsdfDataDir(), "installs", plugin.Name(), installVersion)
+					}
+
+					downloadPath := cliContext.String("download-path")
+					if downloadPath == "" {
+						downloadPath = filepath.Join(getAsdfDataDir(), "downloads", plugin.Name(), installVersion)
+					}
+
+					return cmdInstall(cliContext.Context, plugin, installVersion, downloadPath, installPath)
+				},
+			},
+			{
+				// ...
+				Name:  "uninstall",
+				Usage: "Uninstall a specific version",
+				Flags: []cli.Flag{pluginFlag, installPathFlag},
+				Action: func(cliContext *cli.Context) error {
+					plugin, _, err := resolvePluginFromContext(cliContext)
+					if err != nil {
+						return err
+					}
+
+					installPath := cliContext.String("install-path")
+					if installPath == "" {
+						return errASDFInstallPathNotSet
+					}
+
+					return cmdUninstall(cliContext.Context, plugin, installPath)
+				},
+			},
+			{
+				Name:  "list-bin-paths",
+				Usage: "List binary paths for installed version",
+				Flags: []cli.Flag{pluginFlag},
+				Action: func(cliContext *cli.Context) error {
+					plugin, _, err := resolvePluginFromContext(cliContext)
+					if err != nil {
+						return err
+					}
+
+					return cmdListBinPaths(plugin)
+				},
+			},
+			{
+				Name:  "exec-env",
+				Usage: "Print environment variables for execution",
+				Flags: []cli.Flag{pluginFlag, installPathFlag},
+				Action: func(cliContext *cli.Context) error {
+					plugin, _, err := resolvePluginFromContext(cliContext)
+					if err != nil {
+						return err
+					}
+
+					return cmdExecEnv(plugin, cliContext.String("install-path"))
+				},
+			},
+			{
+				Name:  "latest-stable",
+				Usage: "Return latest stable version",
+				Flags: []cli.Flag{pluginFlag, queryFlag},
+				Action: func(cliContext *cli.Context) error {
+					plugin, args, err := resolvePluginFromContext(cliContext)
+					if err != nil {
+						return err
+					}
+
+					query := cliContext.String("query")
+					if query == "" && len(args) > 0 {
+						query = args[0]
+					}
+
+					return cmdLatestStable(cliContext.Context, plugin, query)
+				},
+			},
+			{
+				Name:  "list-legacy-filenames",
+				Usage: "List legacy version file names",
+				Flags: []cli.Flag{pluginFlag},
+				Action: func(cliContext *cli.Context) error {
+					plugin, _, err := resolvePluginFromContext(cliContext)
+					if err != nil {
+						return err
+					}
+
+					return cmdListLegacyFilenames(plugin)
+				},
+			},
+			{
+				Name:  "parse-legacy-file",
+				Usage: "Parse a legacy version file",
+				Flags: []cli.Flag{pluginFlag, legacyFileFlag},
+				Action: func(cliContext *cli.Context) error {
+					plugin, args, err := resolvePluginFromContext(cliContext)
+					if err != nil {
+						return err
+					}
+
+					filePath := cliContext.String("file")
+					if filePath == "" && len(args) > 0 {
+						filePath = args[0]
+					}
+
+					if filePath == "" {
+						return errLegacyFilePathRequired
+					}
+
+					return cmdParseLegacyFile(plugin, filePath)
+				},
+			},
+			{
+				Name:  "help.overview",
+				Usage: "Show plugin overview help section",
+				Flags: []cli.Flag{pluginFlag},
+				Action: func(cliContext *cli.Context) error {
+					plugin, _, err := resolvePluginFromContext(cliContext)
+					if err != nil {
+						return err
+					}
+
+					return cmdHelpOverview(plugin)
+				},
+			},
+			{
+				Name:  "help.deps",
+				Usage: "Show plugin dependencies help section",
+				Flags: []cli.Flag{pluginFlag},
+				Action: func(cliContext *cli.Context) error {
+					plugin, _, err := resolvePluginFromContext(cliContext)
+					if err != nil {
+						return err
+					}
+
+					return cmdHelpDeps(plugin)
+				},
+			},
+			{
+				Name:  "help.config",
+				Usage: "Show plugin config help section",
+				Flags: []cli.Flag{pluginFlag},
+				Action: func(cliContext *cli.Context) error {
+					plugin, _, err := resolvePluginFromContext(cliContext)
+					if err != nil {
+						return err
+					}
+
+					return cmdHelpConfig(plugin)
+				},
+			},
+			{
+				Name:  "help.links",
+				Usage: "Show plugin links help section",
+				Flags: []cli.Flag{pluginFlag},
+				Action: func(cliContext *cli.Context) error {
+					plugin, _, err := resolvePluginFromContext(cliContext)
+					if err != nil {
+						return err
+					}
+
+					return cmdHelpLinks(plugin)
+				},
+			},
+		},
+	}
+}
+
+// getAsdfDataDir returns the ASDF data directory, defaulting to ~/.asdf if not set.
+func getAsdfDataDir() string {
+	if dir := os.Getenv("ASDF_DATA_DIR"); dir != "" {
+		return dir
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), ".asdf")
+	}
+
+	return filepath.Join(home, ".asdf")
+}
+
+// resolvePluginFromContext resolves plugin from flag, first arg, or executable name.
+func resolvePluginFromContext(cliContext *cli.Context) (asdf.Plugin, []string, error) {
+	pluginName := strings.TrimSpace(cliContext.String("plugin"))
+
+	if pluginName == "" && cliContext.Args().Present() {
+		pluginName = cliContext.Args().First()
+	}
+
 	if pluginName == "" {
 		execName := filepath.Base(os.Args[0])
 		switch {
@@ -88,197 +538,21 @@ func run() error {
 		}
 	}
 
-	command := os.Args[1]
-
-	switch command {
-	case "version", "--version", "-v":
-		fmt.Printf("universal-asdf-plugin %s (commit: %s, built: %s)\n", version, commit, date)
-		return nil
-
-	case "help", "--help", "-h":
-		return printUsage()
-	case "plugins":
-		fmt.Println("Available plugins:")
-		fmt.Println("  argo          - Argo Workflows CLI")
-		fmt.Println("  argocd        - ArgoCD CLI")
-		fmt.Println("  argo-rollouts - Argo Rollouts CLI")
-		fmt.Println("  aws-nuke      - AWS resource cleanup")
-		fmt.Println("  aws-sso-cli   - AWS SSO CLI")
-		fmt.Println("  awscli        - AWS Command Line Interface")
-		fmt.Println("  buf           - Protocol Buffers tooling")
-		fmt.Println("  checkov       - IaC security scanner")
-		fmt.Println("  cmake         - Build system generator")
-		fmt.Println("  cosign        - Cosign container signing")
-		fmt.Println("  doctl         - DigitalOcean CLI")
-		fmt.Println("  gcloud        - Google Cloud SDK")
-		fmt.Println("  jq            - Command-line JSON processor")
-		fmt.Println("  k9s           - Kubernetes CLI")
-		fmt.Println("  kind          - Kubernetes IN Docker")
-		fmt.Println("  ko            - Container image builder")
-		fmt.Println("  kubectl       - Kubernetes CLI")
-		fmt.Println("  lazygit       - Git TUI")
-		fmt.Println("  linkerd       - Service mesh")
-		fmt.Println("  nerdctl       - Docker-compatible CLI")
-		fmt.Println("  ginkgo        - BDD testing framework")
-		fmt.Println("  github-cli    - GitHub CLI")
-		fmt.Println("  gitsign       - Git commit signing")
-		fmt.Println("  gitleaks      - Detect secrets in code")
-		fmt.Println("  golang        - Go programming language")
-		fmt.Println("  goreleaser    - Release automation")
-		fmt.Println("  golangci-lint - Go linters aggregator")
-		fmt.Println("  grype         - Vulnerability scanner")
-		fmt.Println("  helm          - Kubernetes Package Manager")
-		fmt.Println("  pipx          - Python app installer")
-		fmt.Println("  python        - Python programming language")
-		fmt.Println("  rust          - Rust programming language")
-		fmt.Println("  sccache       - Compiler cache")
-		fmt.Println("  shellcheck    - Shell script analysis")
-		fmt.Println("  shfmt         - Shell script formatter")
-		fmt.Println("  sops          - Secrets management")
-		fmt.Println("  syft          - SBOM generator")
-		fmt.Println("  terraform     - Infrastructure as Code")
-		fmt.Println("  tflint        - Terraform linter")
-		fmt.Println("  trivy         - Container vulnerability scanner")
-		fmt.Println("  terragrunt    - Terraform wrapper")
-		fmt.Println("  terrascan     - IaC security scanner")
-		fmt.Println("  tfupdate      - Terraform updater")
-		fmt.Println("  vultr-cli     - Vultr CLI")
-		fmt.Println("  nodejs        - Node.js runtime")
-		fmt.Println("  opentofu      - Open source Terraform")
-		fmt.Println("  protoc        - Protocol Buffers compiler")
-		fmt.Println("  protoc-gen-go - Go protobuf generator")
-		fmt.Println("  protoc-gen-go-grpc - gRPC Go protoc plugin")
-		fmt.Println("  protoc-gen-grpc-web - gRPC-Web protoc plugin")
-		fmt.Println("  protolint     - Protocol Buffers linter")
-		fmt.Println("  sqlc          - SQL code generator")
-		fmt.Println("  tekton-cli    - Tekton CLI")
-		fmt.Println("  telepresence  - K8s local dev")
-		fmt.Println("  traefik       - Cloud native proxy")
-		fmt.Println("  velero        - Kubernetes backup")
-		fmt.Println("  upx           - Executable packer")
-		fmt.Println("  uv            - Python package manager")
-		fmt.Println("  yq            - YAML processor")
-		fmt.Println("  zig           - Zig programming language")
-
-		return nil
-
-	case "install-plugin":
-		return cmdInstallPlugin()
-
-	case "update-tool-versions":
-		return cmdUpdateToolVersions()
-
-	case "generate-tool-sums":
-		return cmdGenerateToolSums()
-	}
-
-	if pluginName == "" && len(os.Args) >= 3 {
-		pluginName = os.Args[2]
-	}
-
 	if pluginName == "" {
-		return errPluginNameRequired
+		return nil, nil, errPluginNameRequired
 	}
 
 	plugin, err := plugins.GetPlugin(pluginName)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	ctx := context.Background()
-
-	switch command {
-	case "list-all":
-		return cmdListAll(ctx, plugin)
-	case "download":
-		return cmdDownload(ctx, plugin)
-	case "install":
-		return cmdInstall(ctx, plugin)
-	case "uninstall":
-		return cmdUninstall(ctx, plugin)
-	case "list-bin-paths":
-		return cmdListBinPaths(plugin)
-	case "exec-env":
-		return cmdExecEnv(plugin)
-	case "latest-stable":
-		return cmdLatestStable(ctx, plugin)
-	case "list-legacy-filenames":
-		return cmdListLegacyFilenames(plugin)
-	case "parse-legacy-file":
-		return cmdParseLegacyFile(plugin)
-	case "help.overview":
-		return cmdHelpOverview(plugin)
-	case "help.deps":
-		return cmdHelpDeps(plugin)
-	case "help.config":
-		return cmdHelpConfig(plugin)
-	case "help.links":
-		return cmdHelpLinks(plugin)
-	default:
-		return fmt.Errorf("%w: %s", errUnknownCommand, command)
+	args := cliContext.Args().Slice()
+	if len(args) > 0 && args[0] == pluginName {
+		args = args[1:]
 	}
-}
 
-// printUsage displays the CLI usage information to stdout.
-func printUsage() error {
-	fmt.Print(`universal-asdf-plugin - Universal ASDF plugin implementation in Go
-
-Usage:
-  universal-asdf-plugin <command> [plugin] [options]
-
-Commands:
-  list-all              List all available versions for a plugin
-  download              Download a specific version (verifies/records checksums)
-  install               Install a specific version
-  list-bin-paths        List binary paths for installed version
-  exec-env              Print environment variables for execution
-  plugins               List available plugins
-  install-plugin        Install this binary as asdf plugin(s)
-  update-tool-versions  Update .tool-versions, replacing 'latest' with actual versions
-  version               Print version information
-  help                  Print this help message
-
-Plugins:
-  golang         Go programming language
-  python         Python programming language
-  nodejs         Node.js runtime
-
-Environment Variables:
-  ASDF_PLUGIN_NAME      Plugin name (golang, python, nodejs)
-  ASDF_INSTALL_VERSION  Version to install
-  ASDF_INSTALL_TYPE     Installation type (version or ref)
-  ASDF_INSTALL_PATH     Installation path
-  ASDF_DOWNLOAD_PATH    Download path
-
-Plugin-specific Environment Variables:
-  Go:
-    ASDF_GOLANG_SKIP_CHECKSUM          Skip checksum verification
-    ASDF_GOLANG_DEFAULT_PACKAGES_FILE  Path to default packages file
-    ASDF_GOLANG_OVERWRITE_ARCH         Override architecture detection
-
-  Python:
-    ASDF_PYTHON_PATCH_URL              URL to patch file
-    ASDF_PYTHON_PATCHES_DIRECTORY      Directory containing patch files
-    ASDF_PYTHON_DEFAULT_PACKAGES_FILE  Path to default packages file
-
-  Node.js:
-    ASDF_NPM_DEFAULT_PACKAGES_FILE     Path to default npm packages file
-    ASDF_NODEJS_AUTO_ENABLE_COREPACK   Enable corepack automatically
-
-Examples:
-  # List all Go versions
-  ASDF_PLUGIN_NAME=golang universal-asdf-plugin list-all
-
-  # Install Go 1.21.0
-  ASDF_PLUGIN_NAME=golang ASDF_INSTALL_VERSION=1.21.0 \
-    ASDF_INSTALL_PATH=~/.asdf/installs/golang/1.21.0 \
-    universal-asdf-plugin install
-
-  # Or specify plugin as argument
-  universal-asdf-plugin list-all golang
-`)
-
-	return nil
+	return plugin, args, nil
 }
 
 // cmdListAll implements the `list-all` subcommand for a plugins.
@@ -294,14 +568,12 @@ func cmdListAll(ctx context.Context, plugin asdf.Plugin) error {
 }
 
 // cmdDownload implements the `download` subcommand for a plugins.
-// It downloads the requested version into ASDF_DOWNLOAD_PATH and manages checksums.
-func cmdDownload(ctx context.Context, plugin asdf.Plugin) error {
-	installVersion := os.Getenv("ASDF_INSTALL_VERSION")
+// It downloads the requested version into the provided downloadPath and manages checksums.
+func cmdDownload(ctx context.Context, plugin asdf.Plugin, installVersion, downloadPath string) error {
 	if installVersion == "" {
 		return errASDFInstallVersionNotSet
 	}
 
-	downloadPath := os.Getenv("ASDF_DOWNLOAD_PATH")
 	if downloadPath == "" {
 		return errASDFDownloadPathNotSet
 	}
@@ -326,24 +598,22 @@ func cmdDownload(ctx context.Context, plugin asdf.Plugin) error {
 }
 
 // cmdInstall implements the `install` subcommand for a plugins.
-// It installs the requested version into ASDF_INSTALL_PATH.
-func cmdInstall(ctx context.Context, plugin asdf.Plugin) error {
-	installVersion := os.Getenv("ASDF_INSTALL_VERSION")
+// It installs the requested version into installPath.
+func cmdInstall(ctx context.Context, plugin asdf.Plugin, installVersion, downloadPath, installPath string) error {
 	if installVersion == "" {
 		return errASDFInstallVersionNotSet
 	}
 
-	installPath := os.Getenv("ASDF_INSTALL_PATH")
 	if installPath == "" {
 		return errASDFInstallPathNotSet
 	}
 
-	downloadPath := os.Getenv("ASDF_DOWNLOAD_PATH")
-	if downloadPath == "" {
-		downloadPath = filepath.Join(os.TempDir(), fmt.Sprintf("asdf-%s-%s", plugin.Name(), installVersion))
+	actualDownloadPath := downloadPath
+	if actualDownloadPath == "" {
+		actualDownloadPath = filepath.Join(os.TempDir(), fmt.Sprintf("asdf-%s-%s", plugin.Name(), installVersion))
 	}
 
-	if err := os.MkdirAll(downloadPath, asdf.CommonDirectoryPermission); err != nil {
+	if err := os.MkdirAll(actualDownloadPath, asdf.CommonDirectoryPermission); err != nil {
 		return fmt.Errorf("creating download directory: %w", err)
 	}
 
@@ -351,7 +621,7 @@ func cmdInstall(ctx context.Context, plugin asdf.Plugin) error {
 		return fmt.Errorf("creating install directory: %w", err)
 	}
 
-	return plugin.Install(ctx, installVersion, downloadPath, installPath)
+	return plugin.Install(ctx, installVersion, actualDownloadPath, installPath)
 }
 
 // cmdListBinPaths implements the `list-bin-paths` subcommand.
@@ -364,8 +634,7 @@ func cmdListBinPaths(plugin asdf.Plugin) error {
 
 // cmdExecEnv implements the `exec-env` subcommand.
 // It prints shell export statements for the plugin's execution environment.
-func cmdExecEnv(plugin asdf.Plugin) error {
-	installPath := os.Getenv("ASDF_INSTALL_PATH")
+func cmdExecEnv(plugin asdf.Plugin, installPath string) error {
 	if installPath == "" {
 		return nil
 	}
@@ -380,8 +649,7 @@ func cmdExecEnv(plugin asdf.Plugin) error {
 
 // cmdUninstall implements the `uninstall` subcommand.
 // It removes the plugin installation at ASDF_INSTALL_PATH.
-func cmdUninstall(ctx context.Context, plugin asdf.Plugin) error {
-	installPath := os.Getenv("ASDF_INSTALL_PATH")
+func cmdUninstall(ctx context.Context, plugin asdf.Plugin, installPath string) error {
 	if installPath == "" {
 		return errASDFInstallPathNotSet
 	}
@@ -391,12 +659,7 @@ func cmdUninstall(ctx context.Context, plugin asdf.Plugin) error {
 
 // cmdLatestStable implements the `latest-stable` subcommand.
 // It prints the latest stable version matching an optional query.
-func cmdLatestStable(ctx context.Context, plugin asdf.Plugin) error {
-	query := ""
-	if len(os.Args) >= 3 {
-		query = os.Args[2]
-	}
-
+func cmdLatestStable(ctx context.Context, plugin asdf.Plugin, query string) error {
 	version, err := plugin.LatestStable(ctx, query)
 	if err != nil {
 		return err
@@ -418,12 +681,10 @@ func cmdListLegacyFilenames(plugin asdf.Plugin) error {
 
 // cmdParseLegacyFile implements the `parse-legacy-file` subcommand.
 // It reads a legacy version file and prints the parsed version.
-func cmdParseLegacyFile(plugin asdf.Plugin) error {
-	if len(os.Args) < 3 {
+func cmdParseLegacyFile(plugin asdf.Plugin, filePath string) error {
+	if filePath == "" {
 		return errLegacyFilePathRequired
 	}
-
-	filePath := os.Args[2]
 
 	version, err := plugin.ParseLegacyFile(filePath)
 	if err != nil {
@@ -467,6 +728,113 @@ func cmdHelpLinks(plugin asdf.Plugin) error {
 	return nil
 }
 
+// cmdReshim regenerates shims for all installed tool versions.
+func cmdReshim() error {
+	asdfDataDir := os.Getenv("ASDF_DATA_DIR")
+	if asdfDataDir == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("getting home directory: %w", err)
+		}
+
+		asdfDataDir = filepath.Join(homeDir, ".asdf")
+	}
+
+	shimsDir := filepath.Join(asdfDataDir, "shims")
+	installsDir := filepath.Join(asdfDataDir, "installs")
+
+	// Ensure shims directory exists
+	if err := os.MkdirAll(shimsDir, asdf.CommonDirectoryPermission); err != nil {
+		return fmt.Errorf("creating shims directory: %w", err)
+	}
+
+	// Remove all existing shims
+	entries, err := os.ReadDir(shimsDir)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("reading shims directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if err := os.Remove(filepath.Join(shimsDir, entry.Name())); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to remove old shim %s: %v\n", entry.Name(), err)
+		}
+	}
+
+	// Read .tool-versions to determine which versions to shim
+	toolVersions, err := parseToolVersions(".tool-versions")
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("reading .tool-versions: %w", err)
+	}
+
+	shimCount := 0
+	for toolName, version := range toolVersions {
+		installPath := filepath.Join(installsDir, toolName, version)
+
+		// Skip if not installed
+		if _, err := os.Stat(installPath); os.IsNotExist(err) {
+			continue
+		}
+
+		// Get bin paths for this tool
+		plugin, err := plugins.GetPlugin(toolName)
+		if err != nil {
+			continue
+		}
+
+		binPathsStr := plugin.ListBinPaths()
+		if binPathsStr == "" {
+			binPathsStr = "bin"
+		}
+
+		binPaths := strings.FieldsSeq(binPathsStr)
+		for binPath := range binPaths {
+			binDir := filepath.Join(installPath, binPath)
+
+			binaries, err := os.ReadDir(binDir)
+			if err != nil {
+				continue
+			}
+
+			for _, binary := range binaries {
+				if binary.IsDir() {
+					continue
+				}
+
+				binFile := filepath.Join(binDir, binary.Name())
+
+				info, err := os.Stat(binFile)
+				if err != nil {
+					continue
+				}
+
+				// Only create shims for executable files
+				if info.Mode()&0o111 == 0 {
+					continue
+				}
+
+				shimPath := filepath.Join(shimsDir, binary.Name())
+
+				// Remove existing shim if present
+				if err := os.Remove(shimPath); err != nil && !os.IsNotExist(err) {
+					fmt.Fprintf(os.Stderr, "Warning: failed to remove existing shim %s: %v\n", shimPath, err)
+				}
+
+				// Create symlink to actual binary
+				if err := os.Symlink(binFile, shimPath); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to create shim for %s: %v\n", binary.Name(), err)
+					continue
+				}
+
+				shimCount++
+			}
+		}
+	}
+
+	fmt.Printf("Created %d shims in %s\n", shimCount, shimsDir)
+
+	return nil
+}
+
 // cmdInstallPlugin installs this binary as one or more asdf plugins.
 func cmdInstallPlugin() error {
 	pluginsToInstall := asdf.AvailablePlugins()
@@ -475,15 +843,19 @@ func cmdInstallPlugin() error {
 	}
 
 	bootstrappingAsdf := slices.Contains(pluginsToInstall, "asdf")
-
 	if bootstrappingAsdf {
-		if asdf_plugin_asdf.IsAsdfInstalled() {
-			fmt.Println("asdf is already installed in", asdf_plugin_asdf.GetShimsDir())
+		asdfPlugin, ok := p.NewAsdfPlugin().(*p.AsdfPlugin)
+		if !ok {
+			return errAsdfPluginCastFailed
+		}
 
-			if !asdf_plugin_asdf.IsAsdfInPath() {
+		if asdfPlugin.IsAsdfInstalled() {
+			fmt.Println("asdf is already installed in", asdfPlugin.GetShimsDir())
+
+			if !asdfPlugin.IsAsdfInPath() {
 				fmt.Println("\nNote: asdf shims directory is not in your PATH.")
 				fmt.Println("Add the following to your shell configuration:")
-				fmt.Println(asdf_plugin_asdf.GetShellConfigInstructions(detectCurrentShell()))
+				fmt.Println(asdfPlugin.GetShellConfigInstructions(detectCurrentShell()))
 			}
 		}
 	}

@@ -21,6 +21,19 @@ import (
 	"path/filepath"
 )
 
+var (
+	// osMkdirAll is os.MkdirAll for mocking.
+	osMkdirAll = os.MkdirAll //nolint:gochecknoglobals // used for mocking
+	// osRemoveAll is os.RemoveAll for mocking.
+	osRemoveAll = os.RemoveAll //nolint:gochecknoglobals // used for mocking
+	// osReadDir is os.ReadDir for mocking.
+	osReadDir = os.ReadDir //nolint:gochecknoglobals // used for mocking
+	// osWriteFile is os.WriteFile for mocking.
+	osWriteFile = os.WriteFile //nolint:gochecknoglobals // used for mocking
+	// osStat is os.Stat for mocking.
+	osStat = os.Stat //nolint:gochecknoglobals // used for mocking
+)
+
 // PluginInstaller handles installing the universal-asdf-plugin as asdf plugins.
 type PluginInstaller struct {
 	// ExecPath is the absolute path to the universal-asdf-plugin binary.
@@ -68,7 +81,7 @@ func (pi *PluginInstaller) Install(pluginName string) error {
 	pluginDir := filepath.Join(pi.PluginsDir, pluginName)
 	binDir := filepath.Join(pluginDir, "bin")
 
-	if err := os.MkdirAll(binDir, CommonDirectoryPermission); err != nil {
+	if err := osMkdirAll(binDir, CommonDirectoryPermission); err != nil {
 		return fmt.Errorf("creating plugin bin directory: %w", err)
 	}
 
@@ -95,7 +108,7 @@ func (pi *PluginInstaller) Install(pluginName string) error {
 		scriptPath := filepath.Join(binDir, scripts[i].name)
 		scriptContent := pi.generateWrapperScript(pluginName, scripts[i].command)
 
-		if err := os.WriteFile(scriptPath, []byte(scriptContent), CommonDirectoryPermission); err != nil {
+		if err := osWriteFile(scriptPath, []byte(scriptContent), CommonDirectoryPermission); err != nil {
 			return fmt.Errorf("writing script %s: %w", scripts[i].name, err)
 		}
 	}
@@ -123,7 +136,7 @@ func (pi *PluginInstaller) InstallAll() ([]string, error) {
 func (pi *PluginInstaller) Uninstall(pluginName string) error {
 	pluginDir := filepath.Join(pi.PluginsDir, pluginName)
 
-	if err := os.RemoveAll(pluginDir); err != nil {
+	if err := osRemoveAll(pluginDir); err != nil {
 		return fmt.Errorf("removing plugin directory: %w", err)
 	}
 
@@ -135,7 +148,7 @@ func (pi *PluginInstaller) IsInstalled(pluginName string) bool {
 	pluginDir := filepath.Join(pi.PluginsDir, pluginName)
 	binDir := filepath.Join(pluginDir, "bin")
 
-	info, err := os.Stat(binDir)
+	info, err := osStat(binDir)
 	if err != nil {
 		return false
 	}
@@ -145,7 +158,7 @@ func (pi *PluginInstaller) IsInstalled(pluginName string) bool {
 
 // GetInstalledPlugins returns a list of installed plugin names.
 func (pi *PluginInstaller) GetInstalledPlugins() ([]string, error) {
-	entries, err := os.ReadDir(pi.PluginsDir)
+	entries, err := osReadDir(pi.PluginsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -163,7 +176,7 @@ func (pi *PluginInstaller) GetInstalledPlugins() ([]string, error) {
 
 		binDir := filepath.Join(pi.PluginsDir, entry.Name(), "bin")
 
-		info, err := os.Stat(binDir)
+		info, err := osStat(binDir)
 		if err != nil || !info.IsDir() {
 			continue
 		}

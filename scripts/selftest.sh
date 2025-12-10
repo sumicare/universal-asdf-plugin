@@ -202,7 +202,7 @@ fi
 
 # Reshim
 log_info "Reshimming all tools..."
-"${ASDF_BIN}" reshim
+"${BINARY}" reshim
 
 # Verify installations
 log_info "Verifying shims and installations..."
@@ -249,7 +249,8 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     if [[ "${FOUND_SHIM}" == "true" ]]; then
         log_info "Verified: ${tool} ${version} - shims OK"
     else
-        log_warn "Warning: ${tool} ${version} - no shims found"
+        log_error "Missing shim for ${tool} ${version}"
+        ((VERIFICATION_FAILED++)) || true
     fi
 done < "${TOOL_VERSIONS}"
 

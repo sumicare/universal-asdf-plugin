@@ -89,6 +89,15 @@ type (
 		DownloadPath string
 		InstallPath  string
 	}
+
+	// ListGitHubVersionsConfig configuration for listing versions from GitHub.
+	ListGitHubVersionsConfig struct {
+		RepoOwner     string
+		RepoName      string
+		VersionPrefix string
+		VersionFilter string
+		UseTags       bool
+	}
 )
 
 var (
@@ -328,10 +337,75 @@ func ReadLegacyVersionFile(path string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-// IsOnline returns true if ONLINE env var is set, enabling network tests.
-func IsOnline() bool {
-	v := os.Getenv("ONLINE")
-	return v == "1" || strings.EqualFold(v, "true")
+// ListGitHubVersions lists versions from a GitHub repository.
+// It handles fetching tags/releases, filtering by regex and prefix, sorting,
+// and filtering stable/prerelease versions.
+func ListGitHubVersions(ctx context.Context, client interface {
+	GetReleases(ctx context.Context, url string) ([]string, error)
+	GetTags(ctx context.Context, url string) ([]string, error)
+}, cfg *ListGitHubVersionsConfig,
+) ([]string, error) {
+	repoURL := fmt.Sprintf("https://github.com/%s/%s", cfg.RepoOwner, cfg.RepoName)
+
+	var (
+		tags []string
+		err  error
+	)
+
+	if cfg.UseTags {
+		tags, err = client.GetTags(ctx, repoURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list tags: %w", err)
+		}
+	} else {
+		tags, err = client.GetReleases(ctx, repoURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list releases: %w", err)
+		}
+	}
+
+	var versionFilter *regexp.Regexp
+	if cfg.VersionFilter != "" {
+		versionFilter, err = regexp.Compile(cfg.VersionFilter)
+		if err != nil {
+			return nil, fmt.Errorf("invalid version filter regex: %w", err)
+		}
+	}
+
+	versions := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if cfg.VersionPrefix != "" {
+			if cfg.UseTags && !strings.HasPrefix(tag, cfg.VersionPrefix) {
+				continue
+			}
+
+			tag = strings.TrimPrefix(tag, cfg.VersionPrefix)
+		}
+
+		if tag == "" {
+			continue
+		}
+
+		if versionFilter != nil && !versionFilter.MatchString(tag) {
+			continue
+		}
+
+		versions = append(versions, tag)
+	}
+
+	SortVersions(versions)
+
+	// Prefer stable versions in list-all output when possible, but keep
+	// prereleases when no stable versions exist.
+	stable := FilterVersions(versions, func(v string) bool {
+		return !IsPrereleaseVersion(v)
+	})
+
+	if len(stable) > 0 {
+		return stable, nil
+	}
+
+	return versions, nil
 }
 
 // IsPrereleaseVersion reports whether a version string represents a prerelease.
@@ -377,4 +451,45 @@ func LatestVersion(versions []string, pattern string) string {
 	SortVersions(filtered)
 
 	return filtered[len(filtered)-1]
+}
+
+// LatestStableWithQuery provides a generic implementation for finding the
+// latest stable version from a list of versions, with optional query prefix
+// filtering. It filters out prerelease versions and returns the newest stable
+// version matching the query.
+func LatestStableWithQuery(
+	ctx context.Context,
+	query string,
+	versions []string,
+	errNoVersions, errNoMatching error,
+) (string, error) {
+	_ = ctx
+
+	if len(versions) == 0 {
+		return "", errNoVersions
+	}
+
+	filteredVersions := versions
+	if query != "" {
+		filteredVersions = nil
+		for _, v := range versions {
+			if strings.HasPrefix(v, query) {
+				filteredVersions = append(filteredVersions, v)
+			}
+		}
+	}
+
+	if len(filteredVersions) == 0 {
+		return "", fmt.Errorf("%w: %s", errNoMatching, query)
+	}
+
+	stable := FilterVersions(filteredVersions, func(v string) bool {
+		return !IsPrereleaseVersion(v)
+	})
+
+	if len(stable) == 0 {
+		return filteredVersions[len(filteredVersions)-1], nil
+	}
+
+	return stable[len(stable)-1], nil
 }

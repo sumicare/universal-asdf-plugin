@@ -97,15 +97,6 @@ linters:
     # funcorder:
     #   alphabetical: true
 
-    ginkgolinter:
-      forbid-focus-container: true
-      allow-havelen-zero: true
-      force-expect-to: true
-      validate-async-intervals: true
-      forbid-spec-pollution: true
-      force-succeed: true
-      force-tonot: true
-
     gochecksumtype:
       include-shared-interfaces: true
 
@@ -514,8 +505,6 @@ linters:
     staticcheck:
       dot-import-whitelist:
         - fmt
-        - github.com/onsi/ginkgo/v2
-        - github.com/onsi/gomega
       initialisms:
         [
           "ACL",
@@ -722,6 +711,11 @@ linters:
       - linters:
           - godoclint
         text: 'symbol should have a godoc \("_"\)'
+
+      # Exclude godoclint warnings for test files (tests do not require Go doc comments)
+      - path: _test\.go$
+        linters:
+          - godoclint
 
       # Exclude grouper warnings for test files (allow flexible var declarations in tests)
       - path: _test\.go$

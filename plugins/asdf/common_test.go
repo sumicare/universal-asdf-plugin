@@ -16,425 +16,596 @@
 package asdf
 
 import (
-	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	"github.com/stretchr/testify/require"
 )
 
-// Common package tests cover generic helpers that are reused by many
-// concrete plugins (platform/arch detection, downloads and archive IO).
-var _ = Describe("Common", func() {
-	Describe("GetPlatform", func() {
-		It("returns a valid platform string", func() {
-			platform, err := GetPlatform()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(platform).To(BeElementOf("linux", "darwin", "windows", "freebsd"))
-		})
+func TestGetPlatform(t *testing.T) {
+	t.Parallel()
+
+	platform, err := GetPlatform()
+	require.NoError(t, err)
+	require.Contains(t, []string{"linux", "darwin", "windows", "freebsd"}, platform)
+}
+
+func TestGetArch(t *testing.T) {
+	// Not parallel because it sets environment variables
+	t.Run("returns the current architecture", func(t *testing.T) {
+		arch, err := GetArch()
+		require.NoError(t, err)
+		require.NotEmpty(t, arch)
 	})
 
-	Describe("GetArch", func() {
-		It("returns the current architecture", func() {
+	tests := []struct {
+		name     string
+		env      string
+		expected string
+		wantErr  bool
+	}{
+		{"amd64", "amd64", "amd64", false},
+		{"x86_64", "x86_64", "amd64", false},
+		{"386", "386", "386", false},
+		{"i386", "i386", "386", false},
+		{"i686", "i686", "386", false},
+		{"arm", "arm", "armv6l", false},
+		{"arm64", "arm64", "arm64", false},
+		{"aarch64", "aarch64", "arm64", false},
+		{"ppc64le", "ppc64le", "ppc64le", false},
+		{"loong64", "loong64", "loong64", false},
+		{"loongarch64", "loongarch64", "loong64", false},
+		{"riscv64", "riscv64", "riscv64", false},
+	}
+
+	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+		t.Run("maps "+tt.name, func(t *testing.T) {
+			t.Setenv("ASDF_OVERWRITE_ARCH", tt.env)
+
 			arch, err := GetArch()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(arch).NotTo(BeEmpty())
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, arch)
+			}
 		})
+	}
 
-		It("respects ASDF_OVERWRITE_ARCH", func() {
-			original := os.Getenv("ASDF_OVERWRITE_ARCH")
-			defer os.Setenv("ASDF_OVERWRITE_ARCH", original)
+	t.Run("returns error for unsupported arch", func(t *testing.T) {
+		if runtime.GOARCH == "unsupported" {
+			t.Skip("cannot test unsupported arch on this platform")
+		}
 
-			os.Setenv("ASDF_OVERWRITE_ARCH", "arm64")
-			arch, err := GetArch()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(arch).To(Equal("arm64"))
-		})
+		t.Setenv("ASDF_OVERWRITE_ARCH", "unsupported")
 
-		DescribeTable("maps architectures correctly",
-			func(input, expected string) {
-				original := os.Getenv("ASDF_OVERWRITE_ARCH")
-				defer os.Setenv("ASDF_OVERWRITE_ARCH", original)
+		_, err := GetArch()
+		require.Error(t, err)
+	})
+}
 
-				os.Setenv("ASDF_OVERWRITE_ARCH", input)
-				arch, err := GetArch()
-				Expect(err).NotTo(HaveOccurred())
-				Expect(arch).To(Equal(expected))
+func TestHTTPClient(t *testing.T) {
+	t.Parallel()
+
+	client := HTTPClient()
+	require.NotNil(t, client)
+	require.NotZero(t, client.Timeout)
+}
+
+func TestVerifySHA256(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup     func(*testing.T) (string, string)
+		name      string
+		errSubstr string
+		wantErr   bool
+	}{
+		{
+			name: "verifies correct checksum",
+			setup: func(*testing.T) (string, string) {
+				path := filepath.Join(t.TempDir(), "test.txt")
+				require.NoError(t, os.WriteFile(path, []byte("test content"), CommonFilePermission))
+
+				return path, "6ae8a75555209fd6c44157c0aed8016e763ff435a19cf186f76863140143ff72"
 			},
-			Entry("amd64", "amd64", "amd64"),
-			Entry("x86_64", "x86_64", "amd64"),
-			Entry("386", "386", "386"),
-			Entry("i386", "i386", "386"),
-			Entry("i686", "i686", "386"),
-			Entry("arm", "arm", "armv6l"),
-			Entry("arm64", "arm64", "arm64"),
-			Entry("aarch64", "aarch64", "arm64"),
-			Entry("ppc64le", "ppc64le", "ppc64le"),
-			Entry("loong64", "loong64", "loong64"),
-			Entry("loongarch64", "loongarch64", "loong64"),
-			Entry("riscv64", "riscv64", "riscv64"),
-		)
+			wantErr: false,
+		},
+		{
+			name: "returns error for incorrect checksum",
+			setup: func(*testing.T) (string, string) {
+				path := filepath.Join(t.TempDir(), "test.txt")
+				require.NoError(t, os.WriteFile(path, []byte("test content"), CommonFilePermission))
 
-		It("returns error for unsupported arch", func() {
-			if runtime.GOARCH == "unsupported" {
-				Skip("cannot test unsupported arch on this platform")
+				return path, "wronghash"
+			},
+			wantErr:   true,
+			errSubstr: "checksum mismatch",
+		},
+		{
+			name: "returns error for nonexistent file",
+			setup: func(*testing.T) (string, string) {
+				return "/nonexistent/file", "somehash"
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			path, hash := tt.setup(t)
+
+			err := VerifySHA256(path, hash)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				if tt.errSubstr != "" {
+					require.Contains(t, err.Error(), tt.errSubstr)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestEnsureDir(t *testing.T) {
+	t.Parallel()
+
+	t.Run("creates nested directories", func(t *testing.T) {
+		t.Parallel()
+
+		nestedPath := filepath.Join(t.TempDir(), "a", "b", "c")
+		require.NoError(t, EnsureDir(nestedPath))
+
+		info, err := os.Stat(nestedPath)
+		require.NoError(t, err)
+		require.True(t, info.IsDir())
+	})
+
+	t.Run("succeeds if directory already exists", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, EnsureDir(t.TempDir()))
+	})
+}
+
+func TestFilterVersions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		versions  []string
+		predicate func(string) bool
+		expected  []string
+	}{
+		{
+			name:     "filters based on predicate",
+			versions: []string{"1.0.0", "1.1.0", "2.0.0", "2.1.0"},
+			predicate: func(v string) bool {
+				return v[0] == '1'
+			},
+			expected: []string{"1.0.0", "1.1.0"},
+		},
+		{
+			name:     "returns empty slice if no matches",
+			versions: []string{"1.0.0", "1.1.0"},
+			predicate: func(v string) bool {
+				return v[0] == '3'
+			},
+			expected: make([]string, 0),
+		},
+		{
+			name:     "filters by predicate with prefix",
+			versions: []string{"1.20.0", "1.21.0", "1.21.5", "2.0.0"},
+			predicate: func(v string) bool {
+				return strings.HasPrefix(v, "1.21")
+			},
+			expected: []string{"1.21.0", "1.21.5"},
+		},
+		{
+			name:     "returns all versions when predicate always returns true",
+			versions: []string{"1.20.0", "1.21.0"},
+			predicate: func(_ string) bool {
+				return true
+			},
+			expected: []string{"1.20.0", "1.21.0"},
+		},
+	}
+
+	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			filtered := FilterVersions(tt.versions, tt.predicate)
+			require.Equal(t, tt.expected, filtered)
+
+			if len(tt.expected) == 0 {
+				require.Empty(t, filtered)
+			}
+		})
+	}
+}
+
+func TestSortVersions(t *testing.T) {
+	t.Parallel()
+
+	versions := []string{"2.0.0", "1.0.0", "1.1.0", "10.0.0"}
+	SortVersions(versions)
+	require.Equal(t, []string{"1.0.0", "1.1.0", "2.0.0", "10.0.0"}, versions)
+}
+
+func TestCompareVersions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		a            string
+		b            string
+		expectedSign int
+	}{
+		{"1.0.0 < 2.0.0", "1.0.0", "2.0.0", -1},
+		{"2.0.0 > 1.0.0", "2.0.0", "1.0.0", 1},
+		{"1.0.0 == 1.0.0", "1.0.0", "1.0.0", 0},
+		{"1.9 < 1.10", "1.9", "1.10", -1},
+		{"1.21.0 > 1.20.0", "1.21.0", "1.20.0", 1},
+	}
+
+	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := CompareVersions(tt.a, tt.b)
+			switch {
+			case tt.expectedSign < 0:
+				require.Less(t, result, 0)
+			case tt.expectedSign > 0:
+				require.Greater(t, result, 0)
+			default:
+				require.Equal(t, 0, result)
+			}
+		})
+	}
+}
+
+func TestParseVersionParts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		version  string
+		expected []int
+	}{
+		{"extracts numeric parts", "1.21.0", []int{1, 21, 0}},
+		{"handles versions with prefixes", "go1.21.0", []int{1, 21, 0}},
+		{"handles rc versions", "1.21rc1", []int{1, 21, 1}},
+	}
+
+	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			parts := ParseVersionParts(tt.version)
+			require.Equal(t, tt.expected, parts)
+		})
+	}
+}
+
+func TestReadLegacyVersionFile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		setup    func(*testing.T) string
+		expected string
+		wantErr  bool
+	}{
+		{
+			name: "reads and trims version file",
+			setup: func(t *testing.T) string {
+				t.Helper()
+
+				path := filepath.Join(t.TempDir(), ".version")
+				require.NoError(t, os.WriteFile(path, []byte("  1.21.0  \n"), CommonFilePermission))
+
+				return path
+			},
+			expected: "1.21.0",
+		},
+		{
+			name:    "returns error for nonexistent file",
+			setup:   func(*testing.T) string { return "/nonexistent/file" },
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := tt.setup(t)
+
+			version, err := ReadLegacyVersionFile(path)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, version)
+			}
+		})
+	}
+}
+
+func TestMsgAndErr(t *testing.T) {
+	t.Parallel()
+	require.NotPanics(t, func() { Msgf("test %s", "message") })
+	require.NotPanics(t, func() { Errf("test %s", "error") })
+}
+
+func TestDownloadFile(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/test.txt" {
+			_, err := w.Write([]byte("test content"))
+			require.NoError(t, err)
+		} else {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	tests := []struct {
+		setup     func(*testing.T) string
+		name      string
+		url       string
+		wantErr   bool
+		checkFile bool
+	}{
+		{
+			name: "downloads file successfully",
+			url:  server.URL + "/test.txt",
+			setup: func(t *testing.T) string {
+				t.Helper()
+				return filepath.Join(t.TempDir(), "downloaded.txt")
+			},
+			checkFile: true,
+		},
+		{
+			name: "returns error for 404",
+			url:  server.URL + "/notfound",
+			setup: func(t *testing.T) string {
+				t.Helper()
+				return filepath.Join(t.TempDir(), "notfound.txt")
+			},
+			wantErr: true,
+		},
+		{
+			name: "returns error for invalid URL",
+			url:  "http://invalid.invalid.invalid:99999/file",
+			setup: func(t *testing.T) string {
+				t.Helper()
+				return filepath.Join(t.TempDir(), "invalid.txt")
+			},
+			wantErr: true,
+		},
+		{
+			name: "returns error when cannot create destination file",
+			url:  server.URL + "/test.txt",
+			setup: func(t *testing.T) string {
+				t.Helper()
+				return "/nonexistent/path/file.txt"
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			destPath := tt.setup(t)
+
+			err := DownloadFile(t.Context(), tt.url, destPath)
+			if !tt.wantErr {
+				require.NoError(t, err)
+
+				if tt.checkFile {
+					content, err := os.ReadFile(destPath)
+					require.NoError(t, err)
+					require.Equal(t, "test content", string(content))
+				}
+
+				return
 			}
 
-			original := os.Getenv("ASDF_OVERWRITE_ARCH")
-			defer os.Setenv("ASDF_OVERWRITE_ARCH", original)
-
-			os.Setenv("ASDF_OVERWRITE_ARCH", "unsupported")
-			_, err := GetArch()
-			Expect(err).To(HaveOccurred())
+			require.Error(t, err)
 		})
-	})
+	}
+}
 
-	Describe("HTTPClient", func() {
-		It("returns a configured HTTP client", func() {
-			client := HTTPClient()
-			Expect(client).NotTo(BeNil())
-			Expect(client.Timeout).NotTo(BeZero())
+func TestDownloadString(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/content" {
+			_, err := w.Write([]byte("string content"))
+			require.NoError(t, err)
+		} else {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	tests := []struct {
+		name     string
+		url      string
+		expected string
+		wantErr  bool
+	}{
+		{
+			name:     "downloads string successfully",
+			url:      server.URL + "/content",
+			expected: "string content",
+		},
+		{
+			name:    "returns error for 404",
+			url:     server.URL + "/notfound",
+			wantErr: true,
+		},
+		{
+			name:    "returns error for invalid URL",
+			url:     "http://invalid.invalid.invalid:99999/content",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			content, err := DownloadString(t.Context(), tt.url)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, content)
+			}
 		})
-	})
+	}
+}
 
-	Describe("VerifySHA256", func() {
-		var tempDir string
+func TestLatestVersion(t *testing.T) {
+	t.Parallel()
 
-		BeforeEach(func() {
-			var err error
-			tempDir, err = os.MkdirTemp("", "asdf-test-*")
-			Expect(err).NotTo(HaveOccurred())
+	tests := []struct {
+		name     string
+		pattern  string
+		expected string
+		versions []string
+	}{
+		{
+			name:     "returns latest version",
+			versions: []string{"1.0.0", "2.0.0", "1.5.0"},
+			expected: "2.0.0",
+		},
+		{
+			name:     "returns latest matching pattern",
+			versions: []string{"1.0.0", "2.0.0", "1.5.0"},
+			pattern:  "1",
+			expected: "1.5.0",
+		},
+		{
+			name:     "prefers stable versions over prereleases",
+			versions: []string{"1.0.0", "1.1.0-rc1", "1.1.0"},
+			expected: "1.1.0",
+		},
+		{
+			name:     "falls back to prereleases when no stable versions exist",
+			versions: []string{"1.1.0-rc1", "1.1.0-beta1"},
+			expected: "1.1.0-beta1",
+		},
+		{
+			name:     "returns empty string if no match",
+			versions: []string{"1.0.0", "2.0.0"},
+			pattern:  "3",
+			expected: "",
+		},
+		{
+			name:     "returns empty string for empty list",
+			versions: make([]string, 0),
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			latest := LatestVersion(tt.versions, tt.pattern)
+			require.Equal(t, tt.expected, latest)
 		})
+	}
+}
 
-		AfterEach(func() {
-			os.RemoveAll(tempDir)
-		})
+var (
+	errTestNoVersions = errors.New("no versions found")
+	errTestNoMatching = errors.New("no matching versions")
+)
 
-		It("verifies correct checksum", func() {
-			testFile := filepath.Join(tempDir, "test.txt")
-			err := os.WriteFile(testFile, []byte("test content"), CommonFilePermission)
-			Expect(err).NotTo(HaveOccurred())
+func TestLatestStableWithQuery(t *testing.T) {
+	t.Parallel()
 
-			expectedHash := "6ae8a75555209fd6c44157c0aed8016e763ff435a19cf186f76863140143ff72"
-			err = VerifySHA256(testFile, expectedHash)
-			Expect(err).NotTo(HaveOccurred())
-		})
+	tests := []struct {
+		wantErr   error
+		name      string
+		query     string
+		expected  string
+		errSubstr string
+		versions  []string
+	}{
+		{
+			name:     "returns latest stable version without query",
+			versions: []string{"1.0.0", "1.1.0", "2.0.0-beta", "2.0.0"},
+			expected: "2.0.0",
+		},
+		{
+			name:     "filters by query prefix",
+			query:    "1.",
+			versions: []string{"1.0.0", "1.1.0", "2.0.0", "2.1.0"},
+			expected: "1.1.0",
+		},
+		{
+			name:     "filters out prerelease versions",
+			versions: []string{"1.0.0", "1.1.0-alpha", "1.1.0-beta", "1.2.0-rc1"},
+			expected: "1.0.0",
+		},
+		{
+			name:     "returns latest prerelease if no stable versions exist",
+			versions: []string{"1.0.0-alpha", "1.0.0-beta", "1.1.0-rc1"},
+			expected: "1.1.0-rc1",
+		},
+		{
+			name:    "returns error when no versions provided",
+			wantErr: errTestNoVersions,
+		},
+		{
+			name:      "returns error when query matches no versions",
+			query:     "3.",
+			versions:  []string{"1.0.0", "1.1.0", "2.0.0"},
+			wantErr:   errTestNoMatching,
+			errSubstr: "3.",
+		},
+		{
+			name:     "handles complex version patterns",
+			query:    "1.2",
+			versions: []string{"1.2.3", "1.2.4-alpha", "1.2.4", "1.3.0-beta", "1.3.0"},
+			expected: "1.2.4",
+		},
+	}
 
-		It("returns error for incorrect checksum", func() {
-			content := []byte("test content")
-			filePath := filepath.Join(tempDir, "test.txt")
-			err := os.WriteFile(filePath, content, CommonFilePermission)
-			Expect(err).NotTo(HaveOccurred())
+	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-			err = VerifySHA256(filePath, "wronghash")
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("checksum mismatch"))
-		})
+			latest, err := LatestStableWithQuery(t.Context(), tt.query, tt.versions, errTestNoVersions, errTestNoMatching)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
 
-		It("returns error for nonexistent file", func() {
-			err := VerifySHA256("/nonexistent/file", "somehash")
-			Expect(err).To(HaveOccurred())
-		})
-	})
-
-	Describe("EnsureDir", func() {
-		var tempDir string
-
-		BeforeEach(func() {
-			var err error
-			tempDir, err = os.MkdirTemp("", "asdf-test-*")
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		AfterEach(func() {
-			os.RemoveAll(tempDir)
-		})
-
-		It("creates nested directories", func() {
-			nestedPath := filepath.Join(tempDir, "a", "b", "c")
-			err := EnsureDir(nestedPath)
-			Expect(err).NotTo(HaveOccurred())
-
-			info, err := os.Stat(nestedPath)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(info.IsDir()).To(BeTrue())
-		})
-
-		It("succeeds if directory already exists", func() {
-			err := EnsureDir(tempDir)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-
-	Describe("FilterVersions", func() {
-		It("filters versions based on predicate", func() {
-			versions := []string{"1.0.0", "1.1.0", "2.0.0", "2.1.0"}
-			filtered := FilterVersions(versions, func(v string) bool {
-				return v[0] == '1'
-			})
-
-			Expect(filtered).To(HaveLen(2))
-			Expect(filtered).To(ContainElements("1.0.0", "1.1.0"))
-		})
-
-		It("returns empty slice if no matches", func() {
-			versions := []string{"1.0.0", "1.1.0"}
-			filtered := FilterVersions(versions, func(v string) bool {
-				return v[0] == '3'
-			})
-
-			Expect(filtered).To(BeEmpty())
-		})
-
-		It("filters versions by predicate with prefix", func() {
-			versions := []string{"1.20.0", "1.21.0", "1.21.5", "2.0.0"}
-			filtered := FilterVersions(versions, func(v string) bool {
-				return strings.HasPrefix(v, "1.21")
-			})
-			Expect(filtered).To(Equal([]string{"1.21.0", "1.21.5"}))
-		})
-
-		It("returns all versions when predicate always returns true", func() {
-			versions := []string{"1.20.0", "1.21.0"}
-			filtered := FilterVersions(versions, func(_ string) bool {
-				return true
-			})
-			Expect(filtered).To(Equal(versions))
-		})
-	})
-
-	Describe("SortVersions", func() {
-		It("sorts versions in semver order", func() {
-			versions := []string{"2.0.0", "1.0.0", "1.1.0", "10.0.0"}
-			SortVersions(versions)
-			Expect(versions).To(Equal([]string{"1.0.0", "1.1.0", "2.0.0", "10.0.0"}))
-		})
-	})
-
-	Describe("CompareVersions", func() {
-		DescribeTable("compares versions correctly",
-			func(a, b string, expectedSign int) {
-				result := CompareVersions(a, b)
-				if expectedSign < 0 {
-					Expect(result).To(BeNumerically("<", 0))
-				} else if expectedSign > 0 {
-					Expect(result).To(BeNumerically(">", 0))
-				} else {
-					Expect(result).To(Equal(0))
+				if tt.errSubstr != "" {
+					require.Contains(t, err.Error(), tt.errSubstr)
 				}
-			},
-			Entry("1.0.0 < 2.0.0", "1.0.0", "2.0.0", -1),
-			Entry("2.0.0 > 1.0.0", "2.0.0", "1.0.0", 1),
-			Entry("1.0.0 == 1.0.0", "1.0.0", "1.0.0", 0),
-			Entry("1.9 < 1.10", "1.9", "1.10", -1),
-			Entry("1.21.0 > 1.20.0", "1.21.0", "1.20.0", 1),
-		)
-	})
-
-	Describe("ParseVersionParts", func() {
-		It("extracts numeric parts", func() {
-			parts := ParseVersionParts("1.21.0")
-			Expect(parts).To(Equal([]int{1, 21, 0}))
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, latest)
+			}
 		})
-
-		It("handles versions with prefixes", func() {
-			parts := ParseVersionParts("go1.21.0")
-			Expect(parts).To(Equal([]int{1, 21, 0}))
-		})
-
-		It("handles rc versions", func() {
-			parts := ParseVersionParts("1.21rc1")
-			Expect(parts).To(Equal([]int{1, 21, 1}))
-		})
-	})
-
-	Describe("ReadLegacyVersionFile", func() {
-		var tempDir string
-
-		BeforeEach(func() {
-			var err error
-			tempDir, err = os.MkdirTemp("", "asdf-test-*")
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		AfterEach(func() {
-			os.RemoveAll(tempDir)
-		})
-
-		It("reads and trims version file", func() {
-			filePath := filepath.Join(tempDir, ".version")
-			err := os.WriteFile(filePath, []byte("  1.21.0  \n"), CommonFilePermission)
-			Expect(err).NotTo(HaveOccurred())
-
-			version, err := ReadLegacyVersionFile(filePath)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(version).To(Equal("1.21.0"))
-		})
-
-		It("returns error for nonexistent file", func() {
-			_, err := ReadLegacyVersionFile("/nonexistent/file")
-			Expect(err).To(HaveOccurred())
-		})
-	})
-
-	Describe("Msg and Err", func() {
-		It("does not panic", func() {
-			Expect(func() { Msgf("test %s", "message") }).NotTo(Panic())
-			Expect(func() { Errf("test %s", "error") }).NotTo(Panic())
-		})
-	})
-
-	Describe("IsOnline", func() {
-		var originalValue string
-
-		BeforeEach(func() {
-			originalValue = os.Getenv("ONLINE")
-		})
-
-		AfterEach(func() {
-			os.Setenv("ONLINE", originalValue)
-		})
-
-		DescribeTable("returns correct value",
-			func(envValue string, expected bool) {
-				os.Setenv("ONLINE", envValue)
-				Expect(IsOnline()).To(Equal(expected))
-			},
-			Entry("1 is true", "1", true),
-			Entry("true is true", "true", true),
-			Entry("TRUE is true", "TRUE", true),
-			Entry("empty is false", "", false),
-			Entry("0 is false", "0", false),
-			Entry("false is false", "false", false),
-		)
-	})
-
-	Describe("DownloadFile", func() {
-		var tempDir string
-		var server *httptest.Server
-
-		BeforeEach(func() {
-			var err error
-			tempDir, err = os.MkdirTemp("", "download-test-*")
-			Expect(err).NotTo(HaveOccurred())
-
-			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/test.txt" {
-					_, _ = w.Write([]byte("test content")) //nolint:errcheck // response writer errors are ignored in test server
-				} else {
-					w.WriteHeader(http.StatusNotFound)
-				}
-			}))
-		})
-
-		AfterEach(func() {
-			os.RemoveAll(tempDir)
-			server.Close()
-		})
-
-		It("downloads file successfully", func() {
-			destPath := filepath.Join(tempDir, "downloaded.txt")
-			err := DownloadFile(context.Background(), server.URL+"/test.txt", destPath)
-			Expect(err).NotTo(HaveOccurred())
-
-			content, err := os.ReadFile(destPath)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(string(content)).To(Equal("test content"))
-		})
-
-		It("returns error for 404", func() {
-			destPath := filepath.Join(tempDir, "notfound.txt")
-			err := DownloadFile(context.Background(), server.URL+"/notfound", destPath)
-			Expect(err).To(HaveOccurred())
-		})
-
-		It("returns error for invalid URL", func() {
-			destPath := filepath.Join(tempDir, "invalid.txt")
-			err := DownloadFile(context.Background(), "http://invalid.invalid.invalid:99999/file", destPath)
-			Expect(err).To(HaveOccurred())
-		})
-
-		It("returns error when cannot create destination file", func() {
-			err := DownloadFile(context.Background(), server.URL+"/test.txt", "/nonexistent/path/file.txt")
-			Expect(err).To(HaveOccurred())
-		})
-	})
-
-	Describe("DownloadString", func() {
-		var server *httptest.Server
-
-		BeforeEach(func() {
-			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/content" {
-					n, err := w.Write([]byte("string content"))
-					Expect(err).NotTo(HaveOccurred())
-					Expect(n).To(Equal(len("string content")))
-				} else {
-					w.WriteHeader(http.StatusNotFound)
-				}
-			}))
-		})
-
-		AfterEach(func() {
-			server.Close()
-		})
-
-		It("downloads string successfully", func() {
-			content, err := DownloadString(context.Background(), server.URL+"/content")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(content).To(Equal("string content"))
-		})
-
-		It("returns error for 404", func() {
-			_, err := DownloadString(context.Background(), server.URL+"/notfound")
-			Expect(err).To(HaveOccurred())
-		})
-
-		It("returns error for invalid URL", func() {
-			_, err := DownloadString(context.Background(), "http://invalid.invalid.invalid:99999/content")
-			Expect(err).To(HaveOccurred())
-		})
-	})
-
-	Describe("LatestVersion", func() {
-		It("returns latest version", func() {
-			versions := []string{"1.0.0", "2.0.0", "1.5.0"}
-			latest := LatestVersion(versions, "")
-			Expect(latest).To(Equal("2.0.0"))
-		})
-
-		It("returns latest matching pattern", func() {
-			versions := []string{"1.0.0", "2.0.0", "1.5.0"}
-			latest := LatestVersion(versions, "1")
-			Expect(latest).To(Equal("1.5.0"))
-		})
-
-		It("prefers stable versions over prereleases", func() {
-			versions := []string{"1.0.0", "1.1.0-rc1", "1.1.0"}
-			latest := LatestVersion(versions, "")
-			Expect(latest).To(Equal("1.1.0"))
-		})
-
-		It("falls back to prereleases when no stable versions exist", func() {
-			versions := []string{"1.1.0-rc1", "1.1.0-beta1"}
-			latest := LatestVersion(versions, "")
-			Expect(latest).To(Equal("1.1.0-beta1"))
-		})
-
-		It("returns empty string if no match", func() {
-			versions := []string{"1.0.0", "2.0.0"}
-			latest := LatestVersion(versions, "3")
-			Expect(latest).To(BeEmpty())
-		})
-
-		It("returns empty string for empty list", func() {
-			latest := LatestVersion(make([]string, 0), "")
-			Expect(latest).To(BeEmpty())
-		})
-	})
-})
+	}
+}

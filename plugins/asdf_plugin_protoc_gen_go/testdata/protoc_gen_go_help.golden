@@ -1,8 +1,0 @@
-protoc-gen-go - protoc-gen-go - Go support for Protocol Buffers
-
-No additional dependencies required
-
-No additional configuration required
-
-Documentation: https://pkg.go.dev/google.golang.org/protobuf
-GitHub: https://github.com/protocolbuffers/protobuf-go

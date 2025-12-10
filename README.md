@@ -143,15 +143,16 @@ universal-asdf-plugin update-tool-versions
 
 Mostly plugins share the same [BinaryPlugin](plugins/asdf/binary_plugin.go) interface, but there are custom ones as well:
 
- - [plugins/asdf_plugin_argo](plugins/asdf_plugin_argo) - Builds Argo Workflows.
- - [plugins/asdf_plugin_ginkgo](plugins/asdf_plugin_ginkgo) - Ginkgo as well 
- - [plugins/asdf_plugin_go](plugins/asdf_plugin_go) - Manages Go toolchains
- - [plugins/asdf_plugin_nodejs](plugins/asdf_plugin_nodejs) - Manages Node.js toolchains
- - [plugins/asdf_plugin_python](plugins/asdf_plugin_python) - Uses python-build / InstallFromSource to compile Python from source
- - [plugins/asdf_plugin_rust](plugins/asdf_plugin_rust) - Uses Rust’s own toolchain installer
- - [plugins/asdf_plugin_awscli](plugins/asdf_plugin_awscli) - Installs AWS CLI via its embedded Python/pip distribution
- - [plugins/asdf_plugin_gcloud](plugins/asdf_plugin_gcloud) - Uses Google’s Cloud SDK installer layout
- - [plugins/asdf_plugin_pipx](plugins/asdf_plugin_pipx) - Installs via Python/pipx mechanisms
+ - [plugins/argo](plugins/argo.go) - Builds Argo Workflows.
+ - [plugins/ginkgo](plugins/ginkgo.go ) - Ginkgo as well 
+ - [plugins/go](plugins/golang.go) - Manages Go toolchains
+ - [plugins/nodejs](plugins/nodejs.go) - Manages Node.js toolchains
+ - [plugins/python](plugins/python.go) - Uses python-build / InstallFromSource to compile Python from source
+ - [plugins/rust](plugins/rust.go) - Uses Rust’s own toolchain installer
+ - [plugins/awscli](plugins/awscli.go) - Installs AWS CLI via its embedded Python/pip distribution
+ - [plugins/gcloud](plugins/gcloud.go) - Uses Google’s Cloud SDK installer layout
+ - [plugins/pipx](plugins/pipx.go) - Installs via Python/pipx mechanisms
+ - [plugins/zig](plugins/zig.go) - Installs custom binary distribution
 
 ### Getting Started
 
@@ -172,9 +173,6 @@ code universal-asdf-plugin.code-workspace
 ```bash
 # Update goldenfiles
 ./scripts/test.sh --update
-
-# Run all tests with downloading actual packages
-./scripts/test.sh --online
 
 # Run all smoke tests with mocked servers
 ./scripts/test.sh

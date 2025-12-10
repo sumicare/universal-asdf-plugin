@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/sumicare/universal-asdf-plugin/plugins/github"
@@ -47,13 +46,12 @@ type (
 
 	// BinaryPluginConfig configures the BinaryPlugin.
 	BinaryPluginConfig struct {
-		OsMap               map[string]string
-		UseReleases         *bool
 		ArchMap             map[string]string
+		OsMap               map[string]string
+		Name                string
 		VersionPrefix       string
 		FileNameTemplate    string
 		DownloadURLTemplate string
-		Name                string
 		BinaryName          string
 		RepoName            string
 		HelpLink            string
@@ -61,39 +59,42 @@ type (
 		ArchiveType         string
 		VersionFilter       string
 		RepoOwner           string
+		UseTags             bool
 	}
 )
 
 // NewBinaryPlugin creates a new GenericPlugin.
 func NewBinaryPlugin(config *BinaryPluginConfig) *BinaryPlugin {
-	if config.VersionPrefix == "" {
-		config.VersionPrefix = "v"
+	cfg := *config
+
+	if cfg.VersionPrefix == "" {
+		cfg.VersionPrefix = "v"
 	}
 
-	if config.FileNameTemplate == "" {
-		config.FileNameTemplate = "{{.BinaryName}}-{{.Platform}}-{{.Arch}}"
+	if cfg.FileNameTemplate == "" {
+		cfg.FileNameTemplate = "{{.BinaryName}}-{{.Platform}}-{{.Arch}}"
 	}
 
-	if config.DownloadURLTemplate == "" {
-		config.DownloadURLTemplate = "https://github.com/{{.RepoOwner}}/{{.RepoName}}/releases/download/v{{.Version}}/{{.FileName}}"
+	if cfg.DownloadURLTemplate == "" {
+		cfg.DownloadURLTemplate = "https://github.com/{{.RepoOwner}}/{{.RepoName}}/releases/download/v{{.Version}}/{{.FileName}}"
 	}
 
-	if config.OsMap == nil {
-		config.OsMap = map[string]string{
+	if cfg.OsMap == nil {
+		cfg.OsMap = map[string]string{
 			"darwin": "darwin",
 			"linux":  "linux",
 		}
 	}
 
-	if config.ArchMap == nil {
-		config.ArchMap = map[string]string{
+	if cfg.ArchMap == nil {
+		cfg.ArchMap = map[string]string{
 			"amd64": "amd64",
 			"arm64": "arm64",
 		}
 	}
 
 	return &BinaryPlugin{
-		Config: config,
+		Config: &cfg,
 		Github: github.NewClient(),
 	}
 }
@@ -111,70 +112,13 @@ func (plugin *BinaryPlugin) Name() string {
 
 // ListAll lists all available versions.
 func (plugin *BinaryPlugin) ListAll(ctx context.Context) ([]string, error) {
-	repoURL := fmt.Sprintf("https://github.com/%s/%s", plugin.Config.RepoOwner, plugin.Config.RepoName)
-
-	useReleases := plugin.Config.UseReleases == nil || *plugin.Config.UseReleases
-
-	var (
-		tags []string
-		err  error
-	)
-
-	if useReleases {
-		tags, err = plugin.Github.GetReleases(ctx, repoURL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list releases: %w", err)
-		}
-	} else {
-		tags, err = plugin.Github.GetTags(ctx, repoURL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list tags: %w", err)
-		}
-	}
-
-	// Compile version filter regex if provided
-	var versionFilter *regexp.Regexp
-	if plugin.Config.VersionFilter != "" {
-		versionFilter, err = regexp.Compile(plugin.Config.VersionFilter)
-		if err != nil {
-			return nil, fmt.Errorf("invalid version filter regex: %w", err)
-		}
-	}
-
-	effectivePrefix := plugin.Config.VersionPrefix
-
-	versions := make([]string, 0, len(tags))
-	for _, tag := range tags {
-		if effectivePrefix != "" {
-			if !useReleases && !strings.HasPrefix(tag, effectivePrefix) {
-				continue
-			}
-
-			tag = strings.TrimPrefix(tag, effectivePrefix)
-		}
-
-		if tag == "" {
-			continue
-		}
-
-		if versionFilter != nil && !versionFilter.MatchString(tag) {
-			continue
-		}
-
-		versions = append(versions, tag)
-	}
-
-	// Prefer stable versions in list-all output when possible, but keep
-	// prereleases when no stable versions exist.
-	stable := FilterVersions(versions, func(v string) bool {
-		return !IsPrereleaseVersion(v)
+	return ListGitHubVersions(ctx, plugin.Github, &ListGitHubVersionsConfig{
+		RepoOwner:     plugin.Config.RepoOwner,
+		RepoName:      plugin.Config.RepoName,
+		VersionPrefix: plugin.Config.VersionPrefix,
+		VersionFilter: plugin.Config.VersionFilter,
+		UseTags:       plugin.Config.UseTags,
 	})
-
-	if len(stable) > 0 {
-		return stable, nil
-	}
-
-	return versions, nil
 }
 
 // Download downloads the specified version.
@@ -289,7 +233,7 @@ func (plugin *BinaryPlugin) Install(_ context.Context, version, downloadPath, in
 		}
 
 	default:
-		if err := copyFile(binaryPath, destPath); err != nil {
+		if err := CopyFile(binaryPath, destPath, CommonExecutablePermission); err != nil {
 			return fmt.Errorf("failed to copy binary: %w", err)
 		}
 	}
@@ -336,21 +280,11 @@ func extractAndCopyBinary(archivePath, destPath, binaryName string, extractFn fu
 		return fmt.Errorf("%w: %s", errBinaryNotFoundInArchive, binaryName)
 	}
 
-	if err := copyFile(foundPath, destPath); err != nil {
+	if err := CopyFile(foundPath, destPath, CommonExecutablePermission); err != nil {
 		return fmt.Errorf("failed to copy binary from archive: %w", err)
 	}
 
 	return nil
-}
-
-// copyFile copies a file from src to dst.
-func copyFile(src, dst string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(dst, data, CommonExecutablePermission)
 }
 
 // Uninstall removes the specified version.
