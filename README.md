@@ -23,7 +23,7 @@ curl -LO https://github.com/sumicare/universal-asdf-plugin/releases/latest/downl
 tar -xzf universal-asdf-plugin-linux-amd64.tar.gz
 chmod +x universal-asdf-plugin
 
-# Or install via Go (requires Go 1.24+)
+# Or install via Go (requires Go 1.25+)
 go install github.com/sumicare/universal-asdf-plugin@latest
 
 # 2. Bootstrap asdf (installs asdf version manager itself), assuming $GOPATH/bin is in PATH already
@@ -138,7 +138,7 @@ universal-asdf-plugin update-tool-versions
 
 ### Prerequisites
 
-- Go 1.24+
+- Go 1.25+
 - Docker (for dev container)
 
 Mostly plugins share the same [BinaryPlugin](plugins/asdf/binary_plugin.go) interface, but there are custom ones as well:

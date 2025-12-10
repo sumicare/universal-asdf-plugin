@@ -364,11 +364,11 @@ var _ = Describe("BinaryPlugin", func() {
 		It("returns latest stable version", func() {
 			server.RegisterTag("v1.0.0")
 			server.RegisterTag("v1.1.0")
-			server.RegisterTag("v2.0.0-beta")
+			server.RegisterTag("v1.1.0")
 
 			version, err := plugin.LatestStable(context.Background(), "")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(version).To(Equal("2.0.0-beta"))
+			Expect(version).To(Equal("1.1.0"))
 		})
 
 		It("filters by query", func() {

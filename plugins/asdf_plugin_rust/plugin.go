@@ -158,6 +158,14 @@ func (plugin *Plugin) ListAll(ctx context.Context) ([]string, error) {
 		return asdf.CompareVersions(versions[i], versions[j]) < 0
 	})
 
+	stable := asdf.FilterVersions(versions, func(v string) bool {
+		return !asdf.IsPrereleaseVersion(v)
+	})
+
+	if len(stable) > 0 {
+		versions = stable
+	}
+
 	result := []string{"stable", "beta", "nightly"}
 
 	result = append(result, versions...)

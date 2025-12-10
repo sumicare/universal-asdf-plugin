@@ -38,6 +38,17 @@ func (p *Plugin) ListAll(ctx context.Context) ([]string, error) {
 	versions := parseGoTags(tags)
 
 	versions = filterOldVersions(versions)
+
+	// Prefer stable versions in list-all output when possible, but keep
+	// prereleases when no stable versions exist.
+	stable := asdf.FilterVersions(versions, func(v string) bool {
+		return !asdf.IsPrereleaseVersion(v)
+	})
+
+	if len(stable) > 0 {
+		versions = stable
+	}
+
 	sortGoVersions(versions)
 
 	return versions, nil
@@ -64,7 +75,7 @@ func (p *Plugin) LatestStable(ctx context.Context, query string) (string, error)
 	}
 
 	stable := asdf.FilterVersions(versions, func(v string) bool {
-		return !strings.Contains(v, "rc") && !strings.Contains(v, "beta") && !strings.Contains(v, "alpha")
+		return !asdf.IsPrereleaseVersion(v)
 	})
 
 	if len(stable) == 0 {

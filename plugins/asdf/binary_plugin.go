@@ -164,6 +164,16 @@ func (plugin *BinaryPlugin) ListAll(ctx context.Context) ([]string, error) {
 		versions = append(versions, tag)
 	}
 
+	// Prefer stable versions in list-all output when possible, but keep
+	// prereleases when no stable versions exist.
+	stable := FilterVersions(versions, func(v string) bool {
+		return !IsPrereleaseVersion(v)
+	})
+
+	if len(stable) > 0 {
+		return stable, nil
+	}
+
 	return versions, nil
 }
 

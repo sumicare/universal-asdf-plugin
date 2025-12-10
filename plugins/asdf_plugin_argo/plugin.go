@@ -138,6 +138,16 @@ func (p *Plugin) ListAll(ctx context.Context) ([]string, error) {
 		return asdf.CompareVersions(versions[i], versions[j]) < 0
 	})
 
+	// Prefer stable versions in list-all output when possible, but keep
+	// prereleases when no stable versions exist.
+	stable := asdf.FilterVersions(versions, func(v string) bool {
+		return !asdf.IsPrereleaseVersion(v)
+	})
+
+	if len(stable) > 0 {
+		return stable, nil
+	}
+
 	return versions, nil
 }
 
@@ -153,7 +163,16 @@ func (p *Plugin) LatestStable(ctx context.Context, query string) (string, error)
 	}
 
 	if query == "" {
-		return versions[len(versions)-1], nil
+		// Prefer stable versions when possible.
+		stable := asdf.FilterVersions(versions, func(v string) bool {
+			return !asdf.IsPrereleaseVersion(v)
+		})
+
+		if len(stable) == 0 {
+			return versions[len(versions)-1], nil
+		}
+
+		return stable[len(stable)-1], nil
 	}
 
 	// Filter by query prefix
@@ -168,7 +187,15 @@ func (p *Plugin) LatestStable(ctx context.Context, query string) (string, error)
 		return "", fmt.Errorf("%w: %s", errArgoNoVersionsMatching, query)
 	}
 
-	return filtered[len(filtered)-1], nil
+	stable := asdf.FilterVersions(filtered, func(v string) bool {
+		return !asdf.IsPrereleaseVersion(v)
+	})
+
+	if len(stable) == 0 {
+		return filtered[len(filtered)-1], nil
+	}
+
+	return stable[len(stable)-1], nil
 }
 
 // Download is a no-op for Argo since installation downloads the source archive directly.

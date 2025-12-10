@@ -414,6 +414,18 @@ var _ = Describe("Common", func() {
 			Expect(latest).To(Equal("1.5.0"))
 		})
 
+		It("prefers stable versions over prereleases", func() {
+			versions := []string{"1.0.0", "1.1.0-rc1", "1.1.0"}
+			latest := LatestVersion(versions, "")
+			Expect(latest).To(Equal("1.1.0"))
+		})
+
+		It("falls back to prereleases when no stable versions exist", func() {
+			versions := []string{"1.1.0-rc1", "1.1.0-beta1"}
+			latest := LatestVersion(versions, "")
+			Expect(latest).To(Equal("1.1.0-beta1"))
+		})
+
 		It("returns empty string if no match", func() {
 			versions := []string{"1.0.0", "2.0.0"}
 			latest := LatestVersion(versions, "3")

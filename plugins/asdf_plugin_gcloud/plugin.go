@@ -242,6 +242,14 @@ func (plugin *Plugin) ListAll(ctx context.Context) ([]string, error) {
 		return asdf.CompareVersions(result[i], result[j]) < 0
 	})
 
+	stable := asdf.FilterVersions(result, func(v string) bool {
+		return !asdf.IsPrereleaseVersion(v)
+	})
+
+	if len(stable) > 0 {
+		return stable, nil
+	}
+
 	return result, nil
 }
 
@@ -271,7 +279,15 @@ func (plugin *Plugin) LatestStable(ctx context.Context, query string) (string, e
 		return "", fmt.Errorf("%w: %s", errGcloudNoVersionsMatching, query)
 	}
 
-	return versions[len(versions)-1], nil
+	stable := asdf.FilterVersions(versions, func(v string) bool {
+		return !asdf.IsPrereleaseVersion(v)
+	})
+
+	if len(stable) == 0 {
+		return versions[len(versions)-1], nil
+	}
+
+	return stable[len(stable)-1], nil
 }
 
 // getObjectName returns the GCS object name for the specified version.

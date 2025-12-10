@@ -60,6 +60,9 @@ jobs:
           ln -sf "$ASDF_INSTALL_PATH/bin/asdf" "$HOME/.asdf/shims/asdf"
           echo "$HOME/.asdf/shims" >> $GITHUB_PATH
 
+      - name: Update golden files
+        run: ./scripts/test.sh --update
+
       - name: Run selftest with latest versions
         run: ./scripts/selftest.sh
 
@@ -71,9 +74,6 @@ jobs:
           fi
           echo "Generated checksums for latest versions:"
           cat .tool-sums
-
-      - name: Update golden files
-        run: ./scripts/test.sh --update
 
       - name: Upload nightly artifacts
         uses: actions/upload-artifact@v5

@@ -124,9 +124,14 @@ func (fixture *pythonTestFixture) setupMockPythonBuild() {
 
 if [ "$1" = "--definitions" ]; then
 	# Return a small, fixed list of versions for testing ListAll.
+	# Include some non-stable or non-CPython-style definitions to verify filtering.
 	echo "3.10.0"
 	echo "3.11.0"
 	echo "3.12.0"
+	echo "3.14.1"
+	echo "3.14.1t"
+	echo "3.14-dev"
+	echo "pypy3.10-7.3.15"
 	exit 0
 fi
 

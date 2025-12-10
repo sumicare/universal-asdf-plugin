@@ -334,7 +334,23 @@ func IsOnline() bool {
 	return v == "1" || strings.EqualFold(v, "true")
 }
 
-// LatestVersion returns the latest version from a list, optionally filtered by pattern.
+// IsPrereleaseVersion reports whether a version string represents a prerelease.
+// It matches common markers like "rc", "alpha", "beta" and "-pre".
+func IsPrereleaseVersion(version string) bool {
+	lower := strings.ToLower(version)
+
+	return strings.Contains(lower, "rc") ||
+		strings.Contains(lower, "alpha") ||
+		strings.Contains(lower, "beta") ||
+		strings.Contains(lower, "-pre")
+}
+
+// LatestVersion returns the latest stable version from a list, optionally filtered by pattern.
+//
+// A version is considered a prerelease if it contains common pre-release markers
+// such as "rc", "alpha", "beta" or "-pre". When both stable and prerelease
+// versions are present, the latest stable version is returned. If only
+// prerelease versions are available, the latest prerelease is returned.
 func LatestVersion(versions []string, pattern string) string {
 	filtered := versions
 	if pattern != "" {
@@ -347,6 +363,17 @@ func LatestVersion(versions []string, pattern string) string {
 		return ""
 	}
 
+	// Prefer stable versions over prereleases when possible.
+	stable := FilterVersions(filtered, func(v string) bool {
+		return !IsPrereleaseVersion(v)
+	})
+
+	if len(stable) > 0 {
+		SortVersions(stable)
+		return stable[len(stable)-1]
+	}
+
+	// Fall back to prerelease versions if no stable ones exist.
 	SortVersions(filtered)
 
 	return filtered[len(filtered)-1]

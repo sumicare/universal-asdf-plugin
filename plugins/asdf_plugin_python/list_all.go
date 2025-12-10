@@ -28,8 +28,13 @@ import (
 	"github.com/sumicare/universal-asdf-plugin/plugins/asdf"
 )
 
-// errPythonNoVersionsFound is returned when no Python versions are discovered.
-var errPythonNoVersionsFound = errors.New("no versions found")
+var (
+	// errPythonNoVersionsFound is returned when no Python versions are discovered.
+	errPythonNoVersionsFound = errors.New("no versions found")
+
+	// stableCPythonVersionRE matches stable CPython versions in plain X.Y.Z form.
+	stableCPythonVersionRE = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+)
 
 // ListAll returns all available Python versions using python-build definitions.
 func (plugin *Plugin) ListAll(ctx context.Context) ([]string, error) {
@@ -48,6 +53,12 @@ func (plugin *Plugin) ListAll(ctx context.Context) ([]string, error) {
 
 	versions := strings.Fields(string(output))
 	sortPythonVersions(versions)
+
+	stable := asdf.FilterVersions(versions, isStableCPythonVersion)
+
+	if len(stable) > 0 {
+		return stable, nil
+	}
 
 	return versions, nil
 }
@@ -92,6 +103,16 @@ func sortPythonVersions(versions []string) {
 	asdf.SortVersions(versions)
 }
 
+// isStableCPythonVersion reports whether a version is a stable CPython release.
+// It accepts only plain X.Y.Z versions and excludes prereleases or suffixed variants.
+func isStableCPythonVersion(version string) bool {
+	if !stableCPythonVersionRE.MatchString(version) {
+		return false
+	}
+
+	return !asdf.IsPrereleaseVersion(version)
+}
+
 // ListAllFromFTP returns all available Python versions from python.org FTP.
 // This is an alternative method that doesn't require python-build.
 func (plugin *Plugin) ListAllFromFTP(ctx context.Context) ([]string, error) {
@@ -115,6 +136,12 @@ func (plugin *Plugin) ListAllFromFTP(ctx context.Context) ([]string, error) {
 
 	sortPythonVersions(versions)
 
+	stable := asdf.FilterVersions(versions, isStableCPythonVersion)
+
+	if len(stable) > 0 {
+		return stable, nil
+	}
+
 	return versions, nil
 }
 
@@ -136,6 +163,12 @@ func (plugin *Plugin) ListAllFromGitHub(ctx context.Context) ([]string, error) {
 	}
 
 	sortPythonVersions(versions)
+
+	stable := asdf.FilterVersions(versions, isStableCPythonVersion)
+
+	if len(stable) > 0 {
+		return stable, nil
+	}
 
 	return versions, nil
 }
@@ -161,9 +194,7 @@ func (plugin *Plugin) LatestStable(ctx context.Context, query string) (string, e
 	}
 
 	stable := asdf.FilterVersions(versions, func(v string) bool {
-		return !strings.Contains(v, "a") && !strings.Contains(v, "b") &&
-			!strings.Contains(v, "rc") && !strings.Contains(v, "alpha") &&
-			!strings.Contains(v, "beta")
+		return !asdf.IsPrereleaseVersion(v)
 	})
 
 	if len(stable) == 0 {

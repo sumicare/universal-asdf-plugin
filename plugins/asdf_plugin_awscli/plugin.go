@@ -181,6 +181,14 @@ func (plugin *Plugin) ListAll(ctx context.Context) ([]string, error) {
 		return asdf.CompareVersions(versions[i], versions[j]) < 0
 	})
 
+	stable := asdf.FilterVersions(versions, func(v string) bool {
+		return !asdf.IsPrereleaseVersion(v)
+	})
+
+	if len(stable) > 0 {
+		return stable, nil
+	}
+
 	return versions, nil
 }
 
@@ -210,7 +218,15 @@ func (plugin *Plugin) LatestStable(ctx context.Context, query string) (string, e
 		return "", fmt.Errorf("%w: %s", errAWSNoVersionsMatching, query)
 	}
 
-	return versions[len(versions)-1], nil
+	stable := asdf.FilterVersions(versions, func(v string) bool {
+		return !asdf.IsPrereleaseVersion(v)
+	})
+
+	if len(stable) == 0 {
+		return versions[len(versions)-1], nil
+	}
+
+	return stable[len(stable)-1], nil
 }
 
 // getDownloadURL returns the download URL for the specified version.
