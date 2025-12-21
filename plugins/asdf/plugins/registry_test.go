@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package plugins
+package plugins_test
 
 import (
 	"os"
@@ -22,9 +22,14 @@ import (
 
 	"github.com/sebdah/goldie/v2"
 	"github.com/stretchr/testify/require"
-
 	"github.com/sumicare/universal-asdf-plugin/plugins/asdf"
+	"github.com/sumicare/universal-asdf-plugin/plugins/asdf/plugins"
 )
+
+func isGitHubActions() bool {
+	return strings.EqualFold(os.Getenv("GITHUB_ACTIONS"), "true") ||
+		os.Getenv("GITHUB_ACTIONS") == "1"
+}
 
 // TestRegistryPlugins runs standard plugin behavior tests for all registered plugins.
 // This test suite traverses the plugin registry and validates that each plugin:
@@ -34,7 +39,7 @@ import (
 func TestRegistryPlugins(t *testing.T) {
 	t.Parallel()
 
-	registry := GetPluginRegistry()
+	registry := plugins.GetPluginRegistry()
 	require.NotNil(t, registry, "expected plugin registry to be initialized")
 
 	entries := registry.All()
@@ -49,12 +54,18 @@ func TestRegistryPlugins(t *testing.T) {
 				t.Parallel()
 
 				// Test that plugin can be retrieved by name
-				plugin, err := GetPlugin(name)
+				plugin, err := plugins.GetPlugin(name)
 				require.NoError(t, err, "expected plugin %s to be retrievable", name)
 				require.NotNil(t, plugin, "expected plugin %s to be non-nil", name)
 
 				// Test that plugin implements asdf.Plugin interface
-				require.Implements(t, (*asdf.Plugin)(nil), plugin, "expected %s to implement asdf.Plugin", name)
+				require.Implements(
+					t,
+					(*asdf.Plugin)(nil),
+					plugin,
+					"expected %s to implement asdf.Plugin",
+					name,
+				)
 
 				// Test that plugin provides help information (at minimum overview)
 				help := plugin.Help()
@@ -73,7 +84,7 @@ func TestRegistryPlugins(t *testing.T) {
 func TestRegistryPluginsOnline(t *testing.T) {
 	t.Parallel()
 
-	registry := GetPluginRegistry()
+	registry := plugins.GetPluginRegistry()
 	require.NotNil(t, registry, "expected plugin registry to be initialized")
 
 	entries := registry.All()
@@ -89,7 +100,7 @@ func TestRegistryPluginsOnline(t *testing.T) {
 		t.Run(name+"_online", func(t *testing.T) {
 			t.Parallel()
 
-			plugin, err := GetPlugin(name)
+			plugin, err := plugins.GetPlugin(name)
 			require.NoError(t, err, "expected plugin %s to be retrievable", name)
 			require.NotNil(t, plugin, "expected plugin %s to be non-nil", name)
 
@@ -97,6 +108,14 @@ func TestRegistryPluginsOnline(t *testing.T) {
 
 			// Test ListAll with goldie snapshot
 			t.Run("ListAll", func(t *testing.T) {
+				t.Parallel()
+
+				if name == "checkov" && isGitHubActions() {
+					t.Skip(
+						"Skipping checkov ListAll test in GitHub Actions due to IP filtering on bridgecrewio organization",
+					)
+				}
+
 				versions, err := plugin.ListAll(ctx)
 				if err != nil {
 					t.Skipf("ListAll failed for %s: %v", name, err)
@@ -107,6 +126,14 @@ func TestRegistryPluginsOnline(t *testing.T) {
 
 			// Test LatestStable with goldie snapshot
 			t.Run("LatestStable", func(t *testing.T) {
+				t.Parallel()
+
+				if name == "checkov" && isGitHubActions() {
+					t.Skip(
+						"Skipping checkov LatestStable test in GitHub Actions due to IP filtering on bridgecrewio organization",
+					)
+				}
+
 				version, err := plugin.LatestStable(ctx, "")
 				if err != nil {
 					t.Skipf("LatestStable failed for %s: %v", name, err)
@@ -122,7 +149,7 @@ func TestRegistryPluginsOnline(t *testing.T) {
 func TestRegistryUnknownPlugin(t *testing.T) {
 	t.Parallel()
 
-	plugin, err := GetPlugin("this-plugin-does-not-exist")
+	plugin, err := plugins.GetPlugin("this-plugin-does-not-exist")
 	require.Nil(t, plugin, "expected unknown plugin to return nil")
 	require.Error(t, err, "expected unknown plugin to return error")
 }
@@ -131,7 +158,7 @@ func TestRegistryUnknownPlugin(t *testing.T) {
 func TestRegistryGetPluginRegistry(t *testing.T) {
 	t.Parallel()
 
-	registry := GetPluginRegistry()
+	registry := plugins.GetPluginRegistry()
 	require.NotNil(t, registry, "expected registry to be non-nil")
 
 	entries := registry.All()
@@ -153,13 +180,18 @@ func TestRegistryPluginAliases(t *testing.T) {
 		t.Run(alias+"_alias", func(t *testing.T) {
 			t.Parallel()
 
-			pluginByAlias, err := GetPlugin(alias)
+			pluginByAlias, err := plugins.GetPlugin(alias)
 			require.NoError(t, err, "expected alias %s to be retrievable", alias)
 			require.NotNil(t, pluginByAlias, "expected alias %s to return non-nil plugin", alias)
 
-			pluginByCanonical, err := GetPlugin(canonical)
+			pluginByCanonical, err := plugins.GetPlugin(canonical)
 			require.NoError(t, err, "expected canonical %s to be retrievable", canonical)
-			require.NotNil(t, pluginByCanonical, "expected canonical %s to return non-nil plugin", canonical)
+			require.NotNil(
+				t,
+				pluginByCanonical,
+				"expected canonical %s to return non-nil plugin",
+				canonical,
+			)
 
 			// Both should have the same name
 			require.Equal(t, pluginByAlias.Name(), pluginByCanonical.Name(),
@@ -174,7 +206,7 @@ func TestRegistryPluginAliases(t *testing.T) {
 func TestRegistryPluginsGoldie(t *testing.T) {
 	t.Parallel()
 
-	registry := GetPluginRegistry()
+	registry := plugins.GetPluginRegistry()
 	require.NotNil(t, registry)
 
 	entries := registry.All()
@@ -198,7 +230,7 @@ func TestRegistryPluginsGoldie(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			plugin, err := GetPlugin(name)
+			plugin, err := plugins.GetPlugin(name)
 			require.NoError(t, err)
 			require.NotNil(t, plugin)
 
@@ -206,6 +238,12 @@ func TestRegistryPluginsGoldie(t *testing.T) {
 
 			t.Run("list_all", func(t *testing.T) {
 				t.Parallel()
+
+				if name == "checkov" && isGitHubActions() {
+					t.Skip(
+						"Skipping checkov list_all goldie test in GitHub Actions due to IP filtering on bridgecrewio organization",
+					)
+				}
 
 				versions, err := plugin.ListAll(ctx)
 				if err != nil {
@@ -220,6 +258,12 @@ func TestRegistryPluginsGoldie(t *testing.T) {
 
 			t.Run("latest_stable", func(t *testing.T) {
 				t.Parallel()
+
+				if name == "checkov" && isGitHubActions() {
+					t.Skip(
+						"Skipping checkov latest_stable goldie test in GitHub Actions due to IP filtering on bridgecrewio organization",
+					)
+				}
 
 				version, err := plugin.LatestStable(ctx, "")
 				if err != nil {
@@ -244,7 +288,13 @@ func TestRegistryPluginDownloadInstall(t *testing.T) {
 		t.Skip("Set PLUGIN=<name> to test specific plugin download/install")
 	}
 
-	plugin, err := GetPlugin(pluginName)
+	if pluginName == "checkov" && isGitHubActions() {
+		t.Skip(
+			"Skipping checkov download/install test in GitHub Actions due to IP filtering on bridgecrewio organization",
+		)
+	}
+
+	plugin, err := plugins.GetPlugin(pluginName)
 	require.NoError(t, err)
 	require.NotNil(t, plugin)
 

@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package asdf
+package asdf_test
 
 import (
 	"context"
@@ -26,7 +26,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
+	"github.com/sumicare/universal-asdf-plugin/plugins/asdf"
 	"github.com/sumicare/universal-asdf-plugin/plugins/github"
 	githubmock "github.com/sumicare/universal-asdf-plugin/plugins/github/mock"
 )
@@ -39,15 +39,17 @@ var (
 
 // TestSourceBuildPluginListAllUsesReleases verifies ListAll lists stable versions from releases.
 func TestSourceBuildPluginListAllUsesReleases(t *testing.T) {
+	t.Parallel()
+
 	srv := githubmock.NewServer()
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	srv.AddReleases("o", "r", []string{"v1.2.0", "v1.2.1", "v1.3.0-rc.1"})
 
 	client := github.NewClientWithHTTP(srv.HTTPServer.Client(), srv.URL())
 
 	useTags := false
-	plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+	plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 		UseTags:       useTags,
 		RepoOwner:     "o",
 		RepoName:      "r",
@@ -63,15 +65,17 @@ func TestSourceBuildPluginListAllUsesReleases(t *testing.T) {
 
 // TestSourceBuildPluginListAllUsesTags verifies ListAll honors tag prefix and version filter when listing tags.
 func TestSourceBuildPluginListAllUsesTags(t *testing.T) {
+	t.Parallel()
+
 	srv := githubmock.NewServer()
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	srv.AddTags("o", "r", []string{"v2.0.0", "v2.1.0", "junk", "v1.0.0"})
 
 	client := github.NewClientWithHTTP(srv.HTTPServer.Client(), srv.URL())
 
 	useTags := true
-	plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+	plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 		UseTags:       useTags,
 		RepoOwner:     "o",
 		RepoName:      "r",
@@ -88,8 +92,10 @@ func TestSourceBuildPluginListAllUsesTags(t *testing.T) {
 
 // TestSourceBuildPluginLatestStableErrors verifies LatestStable error behavior when no versions exist.
 func TestSourceBuildPluginLatestStableErrors(t *testing.T) {
+	t.Parallel()
+
 	useTags := false
-	plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+	plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 		UseTags:       useTags,
 		RepoOwner:     "o",
 		RepoName:      "r",
@@ -106,7 +112,7 @@ func TestSourceBuildPluginLatestStableErrors(t *testing.T) {
 func TestSourceBuildPluginName(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+	plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 		Name: "test-plugin",
 	})
 
@@ -116,7 +122,7 @@ func TestSourceBuildPluginName(t *testing.T) {
 func TestSourceBuildPluginDownload(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+	plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 		Name: "test-plugin",
 	})
 
@@ -130,7 +136,7 @@ func TestSourceBuildPluginListBinPaths(t *testing.T) {
 	t.Run("returns configured bin dir", func(t *testing.T) {
 		t.Parallel()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			Name:   "test-plugin",
 			BinDir: "custom/bin",
 		})
@@ -141,7 +147,7 @@ func TestSourceBuildPluginListBinPaths(t *testing.T) {
 	t.Run("returns default bin when not configured", func(t *testing.T) {
 		t.Parallel()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			Name: "test-plugin",
 		})
 
@@ -152,7 +158,7 @@ func TestSourceBuildPluginListBinPaths(t *testing.T) {
 func TestSourceBuildPluginExecEnv(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+	plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 		Name: "test-plugin",
 	})
 
@@ -163,7 +169,7 @@ func TestSourceBuildPluginExecEnv(t *testing.T) {
 func TestSourceBuildPluginUninstall(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+	plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 		Name: "test-plugin",
 	})
 
@@ -177,7 +183,7 @@ func TestSourceBuildPluginListLegacyFilenames(t *testing.T) {
 	t.Run("returns configured legacy filenames", func(t *testing.T) {
 		t.Parallel()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			Name:            "test-plugin",
 			LegacyFilenames: []string{".test-version", "test.config"},
 		})
@@ -189,7 +195,7 @@ func TestSourceBuildPluginListLegacyFilenames(t *testing.T) {
 	t.Run("returns empty slice when not configured", func(t *testing.T) {
 		t.Parallel()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			Name: "test-plugin",
 		})
 
@@ -205,7 +211,7 @@ func TestSourceBuildPluginParseLegacyFile(t *testing.T) {
 	versionFile := filepath.Join(tempDir, ".test-version")
 	require.NoError(t, os.WriteFile(versionFile, []byte("1.0.0\n"), 0o600))
 
-	plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+	plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 		Name: "test-plugin",
 	})
 
@@ -217,7 +223,7 @@ func TestSourceBuildPluginParseLegacyFile(t *testing.T) {
 func TestSourceBuildPluginHelp(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+	plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 		Name: "test-plugin",
 	})
 
@@ -231,7 +237,7 @@ func TestSourceBuildPluginHelp(t *testing.T) {
 func TestRenderSourceBuildTemplate(t *testing.T) {
 	t.Parallel()
 
-	cfg := &SourceBuildPluginConfig{
+	cfg := &asdf.SourceBuildPluginConfig{
 		RepoOwner:     "owner",
 		RepoName:      "repo",
 		Name:          "plugin",
@@ -239,7 +245,7 @@ func TestRenderSourceBuildTemplate(t *testing.T) {
 	}
 
 	template := "{{.RepoOwner}}/{{.RepoName}}/{{.Name}}-{{.VersionPrefix}}{{.Version}}"
-	result := renderSourceBuildTemplate(template, cfg, "1.2.3")
+	result := asdf.RenderSourceBuildTemplateForTests(template, cfg, "1.2.3")
 	require.Equal(t, "owner/repo/plugin-v1.2.3", result)
 }
 
@@ -249,9 +255,9 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 	t.Run("returns error when BuildVersion is nil", func(t *testing.T) {
 		t.Parallel()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{})
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{})
 		err := plugin.Install(t.Context(), "1.0.0", "", t.TempDir())
-		require.ErrorIs(t, err, errSourceBuildNoBuildStep)
+		require.ErrorIs(t, err, asdf.ErrSourceBuildNoBuildStepForTests())
 	})
 
 	t.Run("full install flow with tar.gz", func(t *testing.T) {
@@ -267,22 +273,26 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 		archiveContent, err := os.ReadFile(tarPath)
 		require.NoError(t, err)
 
-		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
-			if strings.Contains(req.URL.Path, "archive") {
-				writer.WriteHeader(http.StatusOK)
+		server := httptest.NewServer(
+			http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
+				if strings.Contains(req.URL.Path, "archive") {
+					writer.WriteHeader(http.StatusOK)
 
-				_, err := writer.Write(archiveContent)
-				require.NoError(t, err)
+					_, err := writer.Write(archiveContent)
+					if err != nil {
+						t.Errorf("writing archive response: %v", err)
+					}
 
-				return
-			}
+					return
+				}
 
-			http.NotFound(writer, req)
-		}))
+				http.NotFound(writer, req)
+			}),
+		)
 		defer server.Close()
 
 		buildCalled := false
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			Name:              "tool",
 			RepoName:          "repo",
 			ArchiveType:       "tar.gz",
@@ -290,7 +300,7 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 			BuildVersion: func(_ context.Context, _, sourceDir, installPath string) error {
 				buildCalled = true
 				// Simulate build by copying binary to install path
-				return CopyDir(sourceDir, installPath)
+				return asdf.CopyDir(sourceDir, installPath)
 			},
 			ExpectedArtifacts: []string{"bin/tool"},
 		})
@@ -312,11 +322,13 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 
 		downloadCalled := false
 
-		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-			downloadCalled = true
+		server := httptest.NewServer(
+			http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				downloadCalled = true
 
-			writer.WriteHeader(http.StatusNotFound)
-		}))
+				writer.WriteHeader(http.StatusNotFound)
+			}),
+		)
 		defer server.Close()
 
 		tempDir := t.TempDir()
@@ -330,7 +342,7 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 		})
 
 		minSize := int64(0)
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			RepoName:          "repo",
 			ArchiveType:       "tar.gz",
 			SourceURLTemplate: server.URL + "/should-not-call",
@@ -357,29 +369,31 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 		archiveContent, err := os.ReadFile(tarPath)
 		require.NoError(t, err)
 
-		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
-			if req.URL.Path == "/custom/1.0.0.tar.gz" {
-				writer.WriteHeader(http.StatusOK)
+		server := httptest.NewServer(
+			http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
+				if req.URL.Path == "/custom/1.0.0.tar.gz" {
+					writer.WriteHeader(http.StatusOK)
 
-				_, err := writer.Write(archiveContent)
-				require.NoError(t, err)
+					_, err := writer.Write(archiveContent)
+					if err != nil {
+						t.Errorf("writing archive response: %v", err)
+					}
 
-				return
-			}
+					return
+				}
 
-			http.NotFound(writer, req)
-		}))
+				http.NotFound(writer, req)
+			}),
+		)
 		defer server.Close()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			RepoName:    "repo",
 			ArchiveType: "tar.gz",
 			SourceURLFunc: func(_ context.Context, version string) (string, error) {
 				return server.URL + "/custom/" + version + ".tar.gz", nil
 			},
-			BuildVersion: func(_ context.Context, _, _, _ string) error {
-				return nil
-			},
+			BuildVersion: func(_ context.Context, _, _, _ string) error { return nil },
 		})
 
 		err = plugin.Install(t.Context(), "1.0.0", "", t.TempDir())
@@ -397,15 +411,19 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 		archiveContent, err := os.ReadFile(zipPath)
 		require.NoError(t, err)
 
-		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-			writer.WriteHeader(http.StatusOK)
+		server := httptest.NewServer(
+			http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.WriteHeader(http.StatusOK)
 
-			_, err := writer.Write(archiveContent)
-			require.NoError(t, err)
-		}))
+				_, err := writer.Write(archiveContent)
+				if err != nil {
+					t.Errorf("writing archive response: %v", err)
+				}
+			}),
+		)
 		defer server.Close()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			RepoName:            "repo",
 			ArchiveType:         "zip",
 			ArchiveNameTemplate: "repo-{{.Version}}.zip",
@@ -432,15 +450,19 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 		archiveContent, err := os.ReadFile(tarPath)
 		require.NoError(t, err)
 
-		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-			writer.WriteHeader(http.StatusOK)
+		server := httptest.NewServer(
+			http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.WriteHeader(http.StatusOK)
 
-			_, err := writer.Write(archiveContent)
-			require.NoError(t, err)
-		}))
+				_, err := writer.Write(archiveContent)
+				if err != nil {
+					t.Errorf("writing archive response: %v", err)
+				}
+			}),
+		)
 		defer server.Close()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			RepoName:               "repo",
 			ArchiveType:            "tar.gz",
 			AutoDetectExtractedDir: true,
@@ -472,20 +494,25 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 
 		postInstallCalled := false
 
-		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-			writer.WriteHeader(http.StatusOK)
+		server := httptest.NewServer(
+			http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.WriteHeader(http.StatusOK)
 
-			_, err := writer.Write(archiveContent)
-			require.NoError(t, err)
-		}))
+				_, err := writer.Write(archiveContent)
+				if err != nil {
+					t.Errorf("writing archive response: %v", err)
+				}
+			}),
+		)
 		defer server.Close()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			RepoName:          "repo",
-			SourceURLTemplate: server.URL + "/archive",
+			SourceURLTemplate: server.URL,
 			BuildVersion:      func(_ context.Context, _, _, _ string) error { return nil },
 			PostInstallVersion: func(_ context.Context, _, _ string) error {
 				postInstallCalled = true
+
 				return nil
 			},
 		})
@@ -504,7 +531,7 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(binDir, "tool"), []byte("bin"), 0o600))
 		require.NoError(t, os.Chmod(filepath.Join(binDir, "tool"), 0o755))
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			BuildVersion: func(_ context.Context, _, _, _ string) error {
 				return os.ErrExist // Should not be called
 			},
@@ -518,12 +545,13 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 	t.Run("returns error when download fails", func(t *testing.T) {
 		t.Parallel()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			RepoName: "repo",
 			DownloadFile: func(_ context.Context, _, _ string) error {
 				return errTestDownloadFailed
 			},
-			BuildVersion: func(_ context.Context, _, _, _ string) error { return nil },
+			BuildVersion:      func(_ context.Context, _, _, _ string) error { return nil },
+			SourceURLTemplate: "http://example.invalid",
 		})
 
 		err := plugin.Install(t.Context(), "1.0.0", "", t.TempDir())
@@ -539,24 +567,26 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 		archivePath := filepath.Join(tempDir, "archive.tar.gz")
 		require.NoError(t, os.WriteFile(archivePath, []byte("invalid"), 0o600))
 
-		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-			writer.WriteHeader(http.StatusOK)
+		server := httptest.NewServer(
+			http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.WriteHeader(http.StatusOK)
 
-			_, err := writer.Write([]byte("invalid"))
-			// We can't use require.NoError here easily as it's a separate goroutine usually,
-			// but for httptest it runs in the same process. However, panicking in a handler
-			// might be caught by net/http recovery.
-			// Best effort: log if error. But since we don't have *testing.T here easily...
-			// Actually we are inside t.Run, we can assume it works or ignore.
-			// The lint error is errcheck. We can ignore it with blank identifier if we really don't care,
-			// or better, check it.
-			if err != nil {
-				panic(err)
-			}
-		}))
+				_, err := writer.Write([]byte("invalid"))
+				// We can't use require.NoError here easily as it's a separate goroutine usually,
+				// but for httptest it runs in the same process. However, panicking in a handler
+				// might be caught by net/http recovery.
+				// Best effort: log if error. But since we don't have *testing.T here easily...
+				// Actually we are inside t.Run, we can assume it works or ignore.
+				// The lint error is errcheck. We can ignore it with blank identifier if we really don't care,
+				// or better, check it.
+				if err != nil {
+					panic(err)
+				}
+			}),
+		)
 		defer server.Close()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			RepoName:          "repo",
 			SourceURLTemplate: server.URL,
 			BuildVersion:      func(_ context.Context, _, _, _ string) error { return nil },
@@ -573,7 +603,9 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 		// Prepare valid archive
 		tempDir := t.TempDir()
 		tarPath := filepath.Join(tempDir, "archive.tar.gz")
-		CreateTestTarGz(t, tarPath, map[string]string{"repo-1.0.0/f": "c"})
+		CreateTestTarGz(t, tarPath, map[string]string{
+			"repo-1.0.0/f": "c",
+		})
 
 		content, err := os.ReadFile(tarPath)
 		require.NoError(t, err)
@@ -586,7 +618,7 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 		}))
 		defer server.Close()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			RepoName:          "repo",
 			SourceURLTemplate: server.URL,
 			PreBuildVersion: func(_ context.Context, _, _ string) error {
@@ -606,7 +638,9 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 		// Prepare valid archive
 		tempDir := t.TempDir()
 		tarPath := filepath.Join(tempDir, "archive.tar.gz")
-		CreateTestTarGz(t, tarPath, map[string]string{"repo-1.0.0/f": "c"})
+		CreateTestTarGz(t, tarPath, map[string]string{
+			"repo-1.0.0/f": "c",
+		})
 
 		content, err := os.ReadFile(tarPath)
 		require.NoError(t, err)
@@ -619,7 +653,7 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 		}))
 		defer server.Close()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			RepoName:          "repo",
 			SourceURLTemplate: server.URL,
 			BuildVersion:      func(_ context.Context, _, _, _ string) error { return nil },
@@ -652,7 +686,7 @@ func TestSourceBuildPluginInstall(t *testing.T) {
 		}))
 		defer server.Close()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			RepoName:          "repo",
 			SourceURLTemplate: server.URL,
 			BuildVersion:      func(_ context.Context, _, _, _ string) error { return nil },
@@ -676,7 +710,7 @@ func TestSourceBuildPluginLatestStable(t *testing.T) {
 
 		srv.AddReleases("o", "r", []string{"v1.0.0", "v1.1.0", "v2.0.0-rc1"})
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			RepoOwner: "o",
 			RepoName:  "r",
 		})
@@ -695,14 +729,14 @@ func TestSourceBuildPluginLatestStable(t *testing.T) {
 
 		srv.AddReleases("o", "r", nil)
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			RepoOwner: "o",
 			RepoName:  "r",
 		})
 		plugin.WithGithubClient(github.NewClientWithHTTP(srv.HTTPServer.Client(), srv.URL()))
 
 		_, err := plugin.LatestStable(t.Context(), "")
-		require.ErrorIs(t, err, errSourceBuildNoVersionsFound)
+		require.ErrorIs(t, err, asdf.ErrSourceBuildNoVersionsFoundForTests())
 	})
 
 	t.Run("returns error when no matching versions", func(t *testing.T) {
@@ -713,14 +747,14 @@ func TestSourceBuildPluginLatestStable(t *testing.T) {
 
 		srv.AddReleases("o", "r", []string{"v1.0.0"})
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			RepoOwner: "o",
 			RepoName:  "r",
 		})
 		plugin.WithGithubClient(github.NewClientWithHTTP(srv.HTTPServer.Client(), srv.URL()))
 
 		_, err := plugin.LatestStable(t.Context(), "2.")
-		require.ErrorIs(t, err, errSourceBuildNoVersionsMatching)
+		require.ErrorIs(t, err, asdf.ErrSourceBuildNoVersionsMatchingForTests())
 	})
 }
 
@@ -730,7 +764,7 @@ func TestSourceBuildPluginExtractSource(t *testing.T) {
 	t.Run("returns error for unsupported archive type", func(t *testing.T) {
 		t.Parallel()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			ArchiveType: "rar", // Unsupported
 		})
 
@@ -758,7 +792,7 @@ func TestSourceBuildPluginExtractSource(t *testing.T) {
 	t.Run("returns error when archive missing", func(t *testing.T) {
 		t.Parallel()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{})
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{})
 
 		// We can't easily call private extractSource.
 		// However, Install guarantees download happens or exists.
@@ -786,11 +820,13 @@ func TestSourceBuildPluginExtractSource(t *testing.T) {
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			_, err := w.Write(content)
-			require.NoError(t, err)
+			if err != nil {
+				t.Errorf("writing archive response: %v", err)
+			}
 		}))
 		defer server.Close()
 
-		plugin := NewSourceBuildPlugin(&SourceBuildPluginConfig{
+		plugin := asdf.NewSourceBuildPlugin(&asdf.SourceBuildPluginConfig{
 			RepoName:                 "repo",
 			ExtractedDirNameTemplate: "repo-{{.Version}}", // Expects repo-1.0.0
 			SourceURLTemplate:        server.URL,

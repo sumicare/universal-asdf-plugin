@@ -81,7 +81,8 @@ func (pi *PluginInstaller) Install(pluginName string) error {
 	pluginDir := filepath.Join(pi.PluginsDir, pluginName)
 	binDir := filepath.Join(pluginDir, "bin")
 
-	if err := osMkdirAll(binDir, CommonDirectoryPermission); err != nil {
+	err := osMkdirAll(binDir, CommonDirectoryPermission)
+	if err != nil {
 		return fmt.Errorf("creating plugin bin directory: %w", err)
 	}
 
@@ -108,7 +109,8 @@ func (pi *PluginInstaller) Install(pluginName string) error {
 		scriptPath := filepath.Join(binDir, scripts[i].name)
 		scriptContent := pi.generateWrapperScript(pluginName, scripts[i].command)
 
-		if err := osWriteFile(scriptPath, []byte(scriptContent), CommonDirectoryPermission); err != nil {
+		err := osWriteFile(scriptPath, []byte(scriptContent), CommonDirectoryPermission)
+		if err != nil {
 			return fmt.Errorf("writing script %s: %w", scripts[i].name, err)
 		}
 	}
@@ -122,7 +124,8 @@ func (pi *PluginInstaller) InstallAll() ([]string, error) {
 	installed := make([]string, 0, len(plugins))
 
 	for _, pluginName := range plugins {
-		if err := pi.Install(pluginName); err != nil {
+		err := pi.Install(pluginName)
+		if err != nil {
 			return installed, fmt.Errorf("installing %s: %w", pluginName, err)
 		}
 
@@ -136,7 +139,8 @@ func (pi *PluginInstaller) InstallAll() ([]string, error) {
 func (pi *PluginInstaller) Uninstall(pluginName string) error {
 	pluginDir := filepath.Join(pi.PluginsDir, pluginName)
 
-	if err := osRemoveAll(pluginDir); err != nil {
+	err := osRemoveAll(pluginDir)
+	if err != nil {
 		return fmt.Errorf("removing plugin directory: %w", err)
 	}
 

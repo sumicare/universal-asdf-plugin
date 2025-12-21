@@ -180,7 +180,8 @@ func isLTS(lts any) bool {
 
 // ListAll returns all available Node.js versions.
 func (plugin *NodejsPlugin) ListAll(ctx context.Context) ([]string, error) {
-	if err := plugin.ensureNodeBuild(ctx); err == nil {
+	err := plugin.ensureNodeBuild(ctx)
+	if err == nil {
 		versions, err := plugin.listAllFromNodeBuild(ctx)
 		if err == nil {
 			return versions, nil
@@ -203,6 +204,7 @@ func (plugin *NodejsPlugin) listAllFromNodeBuild(ctx context.Context) ([]string,
 	var versions []string
 
 	re := regexp.MustCompile(`^[0-9.]+$`)
+
 	for line := range strings.SplitSeq(string(output), "\n") {
 		v := strings.TrimSpace(line)
 		if re.MatchString(v) {
@@ -296,6 +298,7 @@ func (plugin *NodejsPlugin) ResolveVersion(ctx context.Context, version string) 
 
 	if after, ok := strings.CutPrefix(strings.ToLower(version), "lts/"); ok {
 		codename := after
+
 		return plugin.getLTSByCodename(ctx, codename)
 	}
 
@@ -362,6 +365,7 @@ func (plugin *NodejsPlugin) GetLTSCodenames(ctx context.Context) (map[string]str
 	}
 
 	codenames := make(map[string]string)
+
 	for i := range nodeVersions {
 		lts, ok := nodeVersions[i].LTS.(string)
 		if !ok {
@@ -445,7 +449,14 @@ func (plugin *NodejsPlugin) Download(ctx context.Context, version, downloadPath 
 		return err
 	}
 
-	downloadURL := fmt.Sprintf("%sv%s/node-v%s-%s-%s.tar.gz", plugin.distURL, version, version, platform, arch)
+	downloadURL := fmt.Sprintf(
+		"%sv%s/node-v%s-%s-%s.tar.gz",
+		plugin.distURL,
+		version,
+		version,
+		platform,
+		arch,
+	)
 	archivePath := filepath.Join(downloadPath, "node.tar.gz")
 
 	asdf.Msgf("Downloading Node.js %s from %s", version, downloadURL)
@@ -461,7 +472,9 @@ func (plugin *NodejsPlugin) Download(ctx context.Context, version, downloadPath 
 		asdf.Errf("Warning: could not download checksums: %v", err)
 	} else {
 		expectedFilename := fmt.Sprintf("node-v%s-%s-%s.tar.gz", version, platform, arch)
-		if err := verifyNodeChecksum(archivePath, shasumsPath, expectedFilename); err != nil {
+
+		err := verifyNodeChecksum(archivePath, shasumsPath, expectedFilename)
+		if err != nil {
 			return fmt.Errorf("checksum verification failed: %w", err)
 		}
 
@@ -514,22 +527,23 @@ func verifyNodeChecksum(archivePath, shasumsPath, expectedFilename string) error
 }
 
 // Install installs Node.js from the downloaded archive.
-func (plugin *NodejsPlugin) Install(ctx context.Context, version, downloadPath, installPath string) error {
-	if err := asdf.EnsureToolchains(ctx, "python"); err != nil {
-		return err
-	}
-
+func (plugin *NodejsPlugin) Install(
+	ctx context.Context,
+	version, downloadPath, installPath string,
+) error {
 	archivePath := filepath.Join(downloadPath, "node.tar.gz")
 
 	if _, err := os.Stat(archivePath); os.IsNotExist(err) {
-		if err := plugin.Download(ctx, version, downloadPath); err != nil {
+		err := plugin.Download(ctx, version, downloadPath)
+		if err != nil {
 			return err
 		}
 	}
 
 	asdf.Msgf("Installing Node.js %s to %s", version, installPath)
 
-	if err := plugin.sourceBuild.Install(ctx, version, downloadPath, installPath); err != nil {
+	err := plugin.sourceBuild.Install(ctx, version, downloadPath, installPath)
+	if err != nil {
 		return err
 	}
 
@@ -537,12 +551,14 @@ func (plugin *NodejsPlugin) Install(ctx context.Context, version, downloadPath, 
 		_ = os.RemoveAll(filepath.Join(downloadPath, "src"))
 	}
 
-	if err := plugin.installDefaultPackages(ctx, installPath); err != nil {
+	err = plugin.installDefaultPackages(ctx, installPath)
+	if err != nil {
 		asdf.Errf("Warning: failed to install default packages: %v", err)
 	}
 
 	if os.Getenv("ASDF_NODEJS_AUTO_ENABLE_COREPACK") != "" {
-		if err := plugin.enableCorepack(ctx, installPath); err != nil {
+		err := plugin.enableCorepack(ctx, installPath)
+		if err != nil {
 			asdf.Errf("Warning: failed to enable corepack: %v", err)
 		}
 	}
@@ -563,7 +579,9 @@ func (*NodejsPlugin) flattenExtractedDir(sourceDir, installPath string) error {
 		src := filepath.Join(sourceDir, entry.Name())
 
 		dst := filepath.Join(installPath, entry.Name())
-		if err := os.Rename(src, dst); err != nil {
+
+		err := os.Rename(src, dst)
+		if err != nil {
 			return fmt.Errorf("moving %s: %w", entry.Name(), err)
 		}
 	}
@@ -617,7 +635,9 @@ func (*NodejsPlugin) installDefaultPackages(ctx context.Context, installPath str
 			cmd.Stdout = os.Stderr
 
 			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
+
+			err := cmd.Run()
+			if err != nil {
 				asdf.Errf("Failed to install %s: %v", line, err)
 			}
 
@@ -639,7 +659,9 @@ func (*NodejsPlugin) installDefaultPackages(ctx context.Context, installPath str
 		cmd.Stdout = os.Stderr
 
 		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
+
+		err := cmd.Run()
+		if err != nil {
 			asdf.Errf("Failed to install packages: %v", err)
 		}
 	}
@@ -670,5 +692,5 @@ func (*NodejsPlugin) enableCorepack(ctx context.Context, installPath string) err
 // InstallNodeToolchain installs the Node.js toolchain into an asdf-style tree under
 // ASDF_DATA_DIR (or $HOME/.asdf if unset) using the Node.js plugin implementation.
 func InstallNodeToolchain(ctx context.Context) error {
-	return asdf.InstallToolchain(ctx, "nodejs", NewNodejsPlugin())
+	return asdf.InstallWithDependencies(ctx, "nodejs", NewNodejsPlugin())
 }

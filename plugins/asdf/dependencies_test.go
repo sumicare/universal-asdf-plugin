@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package asdf
+package asdf_test
 
 import (
 	"context"
@@ -21,9 +21,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/sumicare/universal-asdf-plugin/plugins/asdf"
 )
 
 var (
@@ -34,79 +36,101 @@ var (
 	errTestHomeError           = errors.New("home error")
 )
 
-func TestToolchains(t *testing.T) { //nolint:tparallel // Not using t.Parallel() because subtests use t.Setenv
+func TestDependencies(
+	t *testing.T,
+) {
+	t.Parallel()
+
 	t.Run("returns nil when no tools are provided", func(t *testing.T) {
-		// Not using t.Parallel() because parent test can't be parallel with t.Setenv in other subtests
-		require.NoError(t, EnsureToolchains(t.Context()))
-		require.NoError(t, EnsureToolVersionsFile(t.Context(), filepath.Join(t.TempDir(), ".tool-versions")))
+		t.Parallel()
+
+		require.NoError(
+			t,
+			asdf.EnsureToolVersionsFile(t.Context(), filepath.Join(t.TempDir(), ".tool-versions")),
+		)
 	})
 
 	t.Run("ensures .tool-versions entries for tools", func(t *testing.T) {
-		// Not parallel due to mocking
+		t.Parallel()
+
 		t.Run("defaults to latest if asdf missing", func(t *testing.T) {
-			mockExec(t, func(string) (string, error) { return "", errTestNotFound })
+			t.Parallel()
+
+			asdf.MockExecForTests(t, func(string) (string, error) { return "", errTestNotFound })
 
 			tempDir := t.TempDir()
 			homeDir := filepath.Join(tempDir, "home")
-			require.NoError(t, os.MkdirAll(homeDir, CommonDirectoryPermission))
+			require.NoError(t, os.MkdirAll(homeDir, asdf.CommonDirectoryPermission))
 
-			mockOS(t, "", homeDir)
-
-			require.NoError(t, EnsureToolchains(t.Context(), "golang"))
+			asdf.MockOSForTests(t, "", homeDir)
 
 			toolVersionsPath := filepath.Join(homeDir, ".tool-versions")
+			require.NoError(t, asdf.EnsureToolVersionsFile(t.Context(), toolVersionsPath, "golang"))
+
 			data, err := os.ReadFile(toolVersionsPath)
 			require.NoError(t, err)
 			require.Contains(t, string(data), "golang latest")
 		})
 
-		t.Run("resolves actual version when asdf is present", func(t *testing.T) {
-			// Use custom mock function to return the version directly
-			origLookPath := execLookPath
-			origExecCmd := execCommandContext
-			t.Cleanup(func() {
-				execLookPath = origLookPath
-				execCommandContext = origExecCmd
-			})
+		t.Run("reads version from project .tool-versions for consistency", func(t *testing.T) {
+			t.Parallel()
 
-			// Mock asdf as available
-			execLookPath = func(string) (string, error) {
-				return "/usr/bin/asdf", nil
-			}
-
-			// Mock the command to return the expected version
-			execCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
-				return exec.CommandContext(ctx, "echo", "1.21.5")
-			}
+			asdf.MockExecForTests(t, func(string) (string, error) { return "/usr/bin/asdf", nil })
 
 			tempDir := t.TempDir()
 			homeDir := filepath.Join(tempDir, "home")
-			require.NoError(t, os.MkdirAll(homeDir, CommonDirectoryPermission))
+			require.NoError(t, os.MkdirAll(homeDir, asdf.CommonDirectoryPermission))
 
-			mockOS(t, "", homeDir)
-
-			require.NoError(t, EnsureToolchains(t.Context(), "golang"))
-
+			// Pre-populate home .tool-versions with golang version
 			toolVersionsPath := filepath.Join(homeDir, ".tool-versions")
+			require.NoError(
+				t,
+				os.WriteFile(
+					toolVersionsPath,
+					[]byte("golang 1.21.5\n"),
+					asdf.CommonFilePermission,
+				),
+			)
+
+			asdf.MockOSForTests(t, tempDir, tempDir)
+
+			require.NoError(t, asdf.EnsureToolVersionsFile(t.Context(), toolVersionsPath, "golang"))
+
 			data, err := os.ReadFile(toolVersionsPath)
 			require.NoError(t, err)
 			require.Contains(t, string(data), "golang 1.21.5")
+			require.Equal(
+				t,
+				1,
+				strings.Count(string(data), "golang"),
+				"should not duplicate golang entry",
+			)
 		})
 
 		t.Run("prefers .tool-versions in working directory", func(t *testing.T) {
-			mockExec(t, func(string) (string, error) { return "", errTestNotFound })
+			t.Parallel()
+
+			asdf.MockExecForTests(t, func(string) (string, error) { return "", errTestNotFound })
 
 			tempDir := t.TempDir()
 			cwd := filepath.Join(tempDir, "cwd")
 			home := filepath.Join(tempDir, "home")
 
-			require.NoError(t, os.MkdirAll(cwd, CommonDirectoryPermission))
-			require.NoError(t, os.MkdirAll(home, CommonDirectoryPermission))
-			require.NoError(t, os.WriteFile(filepath.Join(cwd, ".tool-versions"), []byte(""), CommonFilePermission))
+			require.NoError(t, os.MkdirAll(cwd, asdf.CommonDirectoryPermission))
+			require.NoError(t, os.MkdirAll(home, asdf.CommonDirectoryPermission))
+			require.NoError(
+				t,
+				os.WriteFile(
+					filepath.Join(cwd, ".tool-versions"),
+					[]byte(""),
+					asdf.CommonFilePermission,
+				),
+			)
 
-			mockOS(t, cwd, home)
+			asdf.MockOSForTests(t, cwd, home)
 
-			require.NoError(t, EnsureToolchains(t.Context(), "python"))
+			toolVersionsPath := filepath.Join(cwd, ".tool-versions")
+			require.NoError(t, asdf.EnsureToolVersionsFile(t.Context(), toolVersionsPath, "python"))
 
 			cwdData, err := os.ReadFile(filepath.Join(cwd, ".tool-versions"))
 			require.NoError(t, err)
@@ -118,14 +142,17 @@ func TestToolchains(t *testing.T) { //nolint:tparallel // Not using t.Parallel()
 	})
 
 	t.Run("EnsureToolVersionsFile", func(t *testing.T) {
-		// Not parallel due to mockExec potentially leaking if mixed with non-parallel
+		t.Parallel()
+
 		t.Run("updates a specific .tool-versions file without installing", func(t *testing.T) {
-			mockExec(t, func(string) (string, error) { return "", errTestNotFound })
+			t.Parallel()
+
+			asdf.MockExecForTests(t, func(string) (string, error) { return "", errTestNotFound })
 
 			tempDir := t.TempDir()
 			toolVersionsPath := filepath.Join(tempDir, ".tool-versions")
 
-			require.NoError(t, EnsureToolVersionsFile(t.Context(), toolVersionsPath, "python"))
+			require.NoError(t, asdf.EnsureToolVersionsFile(t.Context(), toolVersionsPath, "python"))
 
 			data, err := os.ReadFile(toolVersionsPath)
 			require.NoError(t, err)
@@ -133,13 +160,22 @@ func TestToolchains(t *testing.T) { //nolint:tparallel // Not using t.Parallel()
 		})
 
 		t.Run("does not duplicate existing tool entries", func(t *testing.T) {
-			mockExec(t, func(string) (string, error) { return "", errTestNotFound })
+			t.Parallel()
+
+			asdf.MockExecForTests(t, func(string) (string, error) { return "", errTestNotFound })
 
 			tempDir := t.TempDir()
 			toolVersionsPath := filepath.Join(tempDir, ".tool-versions")
-			require.NoError(t, os.WriteFile(toolVersionsPath, []byte("python latest\n"), CommonFilePermission))
+			require.NoError(
+				t,
+				os.WriteFile(
+					toolVersionsPath,
+					[]byte("python latest\n"),
+					asdf.CommonFilePermission,
+				),
+			)
 
-			require.NoError(t, EnsureToolVersionsFile(t.Context(), toolVersionsPath, "python"))
+			require.NoError(t, asdf.EnsureToolVersionsFile(t.Context(), toolVersionsPath, "python"))
 
 			data, err := os.ReadFile(toolVersionsPath)
 			require.NoError(t, err)
@@ -153,7 +189,11 @@ func TestToolchains(t *testing.T) { //nolint:tparallel // Not using t.Parallel()
 		t.Run("ensureToolVersionLine cannot read file", func(t *testing.T) {
 			t.Parallel()
 
-			err := ensureToolVersionLine(filepath.Join(t.TempDir(), "missing"), "python", "latest")
+			err := asdf.EnsureToolVersionLineForTests(
+				filepath.Join(t.TempDir(), "missing"),
+				"python",
+				"latest",
+			)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "reading")
 		})
@@ -165,13 +205,15 @@ func TestToolchains(t *testing.T) { //nolint:tparallel // Not using t.Parallel()
 			file := filepath.Join(tempDir, ".tool-versions")
 			require.NoError(t, os.WriteFile(file, []byte(""), 0o400)) // Read-only
 
-			err := ensureToolVersionLine(file, "python", "latest")
+			err := asdf.EnsureToolVersionLineForTests(file, "python", "latest")
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "updating")
 		})
 	})
 
-	t.Run("resolveToolVersionsPath returns error when cannot create file", func(t *testing.T) {
+	t.Run("ResolveToolVersionsPath returns error when cannot create file", func(t *testing.T) {
+		t.Parallel()
+
 		// Mock HOME to a read-only directory
 		tempDir := t.TempDir()
 		readOnlyHome := filepath.Join(tempDir, "ro-home")
@@ -181,81 +223,120 @@ func TestToolchains(t *testing.T) { //nolint:tparallel // Not using t.Parallel()
 		emptyWd := filepath.Join(tempDir, "empty-wd")
 		require.NoError(t, os.Mkdir(emptyWd, 0o755))
 
-		mockOS(t, emptyWd, readOnlyHome)
+		asdf.MockOSForTests(t, emptyWd, readOnlyHome)
 
-		_, err := resolveToolVersionsPath()
+		_, err := asdf.ResolveToolVersionsPath()
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "creating")
 	})
 }
 
-func TestResolveAsdfLatestVersion(t *testing.T) {
-	// Tests using mocking or env vars should not be parallel with others using same mocks
-	t.Run("returns latest when asdf is missing", func(t *testing.T) {
-		setupAsdfLatestTest(t, "", false, false)
+func TestInstallDependencies(t *testing.T) {
+	t.Parallel()
 
-		version := resolveAsdfLatestVersion(t.Context(), "golang")
-		require.Equal(t, "latest", version)
+	t.Run("returns nil for empty tools", func(t *testing.T) {
+		t.Parallel()
+
+		require.NoError(t, asdf.InstallDependenciesForTests(t.Context()))
 	})
 
-	t.Run("returns latest when asdf fails", func(t *testing.T) {
-		setupAsdfLatestTest(t, "", true, true)
+	t.Run("adds tools to .tool-versions when asdf not available", func(t *testing.T) {
+		t.Parallel()
 
-		version := resolveAsdfLatestVersion(t.Context(), "golang")
-		require.Equal(t, "latest", version)
+		asdf.MockExecForTests(t, func(string) (string, error) { return "", errTestNotFound })
+
+		tempDir := t.TempDir()
+		homeDir := filepath.Join(tempDir, "home")
+		require.NoError(t, os.MkdirAll(homeDir, asdf.CommonDirectoryPermission))
+
+		asdf.MockOSForTests(t, "", homeDir)
+
+		err := asdf.InstallDependenciesForTests(t.Context(), "golang", "nodejs")
+		require.NoError(t, err)
+
+		// Should have created .tool-versions with entries
+		toolVersionsPath := filepath.Join(homeDir, ".tool-versions")
+		data, err := os.ReadFile(toolVersionsPath)
+		require.NoError(t, err)
+		require.Contains(t, string(data), "golang")
+		require.Contains(t, string(data), "nodejs")
 	})
 
-	t.Run("returns resolved version", func(t *testing.T) {
-		setupAsdfLatestTest(t, "1.22.0", true, false)
+	t.Run("reads version from existing .tool-versions", func(t *testing.T) {
+		t.Parallel()
 
-		version := resolveAsdfLatestVersion(t.Context(), "golang")
-		require.Equal(t, "1.22.0", version)
-	})
+		asdf.MockExecForTests(t, func(string) (string, error) { return "", errTestNotFound })
 
-	t.Run("returns latest when asdf returns empty output", func(t *testing.T) {
-		setupAsdfLatestTest(t, "", true, false)
+		tempDir := t.TempDir()
+		toolVersionsPath := filepath.Join(tempDir, ".tool-versions")
+		require.NoError(
+			t,
+			os.WriteFile(toolVersionsPath, []byte("golang 1.21.5\n"), asdf.CommonFilePermission),
+		)
 
-		version := resolveAsdfLatestVersion(t.Context(), "golang")
-		require.Equal(t, "latest", version)
+		asdf.MockOSForTests(t, tempDir, tempDir)
+
+		err := asdf.InstallDependenciesForTests(t.Context(), "golang")
+		require.NoError(t, err)
+
+		// Should not duplicate the entry
+		data, err := os.ReadFile(toolVersionsPath)
+		require.NoError(t, err)
+		require.Equal(t, 1, strings.Count(string(data), "golang"))
 	})
 }
 
-// setupAsdfLatestTest sets up a test environment for resolveAsdfLatestVersion tests
-// by mocking the execCommandContext and execLookPath functions.
-func setupAsdfLatestTest(t *testing.T, output string, asdfAvailable, asdfFails bool) { //nolint:revive // we're fine with a flag parameter here
-	t.Helper()
+func TestResolveVersionFromProjectToolVersions(t *testing.T) {
+	t.Parallel()
 
-	// Original execCommandContext function
-	orig := execCommandContext
-	t.Cleanup(func() {
-		execCommandContext = orig
+	t.Run("returns latest when tool-versions file not found", func(t *testing.T) {
+		t.Parallel()
+
+		tempDir := t.TempDir()
+		asdf.MockOSForTests(t, tempDir, tempDir)
+
+		version := asdf.ResolveVersionFromProjectToolVersionsForTests("golang")
+		require.Equal(t, "latest", version)
 	})
 
-	// Mock the exec function with appropriate behavior
-	if asdfFails {
-		execCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
-			return exec.CommandContext(ctx, "false")
-		}
-	} else {
-		execCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
-			return exec.CommandContext(ctx, "echo", output)
-		}
-	}
+	t.Run("returns version from tool-versions file", func(t *testing.T) {
+		t.Parallel()
 
-	origLookPath := execLookPath
-	t.Cleanup(func() {
-		execLookPath = origLookPath
+		tempDir := t.TempDir()
+		toolVersionsPath := filepath.Join(tempDir, ".tool-versions")
+		require.NoError(
+			t,
+			os.WriteFile(
+				toolVersionsPath,
+				[]byte("golang 1.21.5\npython 3.11.0\n"),
+				asdf.CommonFilePermission,
+			),
+		)
+
+		asdf.MockOSForTests(t, tempDir, tempDir)
+
+		version := asdf.ResolveVersionFromProjectToolVersionsForTests("golang")
+		require.Equal(t, "1.21.5", version)
+
+		version = asdf.ResolveVersionFromProjectToolVersionsForTests("python")
+		require.Equal(t, "3.11.0", version)
 	})
 
-	if asdfAvailable {
-		execLookPath = func(string) (string, error) {
-			return "/usr/bin/asdf", nil
-		}
-	} else {
-		execLookPath = func(string) (string, error) {
-			return "", errTestNotFound
-		}
-	}
+	t.Run("returns latest when tool not found in file", func(t *testing.T) {
+		t.Parallel()
+
+		tempDir := t.TempDir()
+		toolVersionsPath := filepath.Join(tempDir, ".tool-versions")
+		require.NoError(
+			t,
+			os.WriteFile(toolVersionsPath, []byte("golang 1.21.5\n"), asdf.CommonFilePermission),
+		)
+
+		asdf.MockOSForTests(t, tempDir, tempDir)
+
+		version := asdf.ResolveVersionFromProjectToolVersionsForTests("nodejs")
+		require.Equal(t, "latest", version)
+	})
 }
 
 type mockPlugin struct {
@@ -270,6 +351,7 @@ func (*mockPlugin) ListAll(_ context.Context) ([]string, error)   { return nil, 
 func (*mockPlugin) Download(_ context.Context, _, _ string) error { return nil }
 func (mockPlugin *mockPlugin) Install(_ context.Context, _, _, _ string) error {
 	mockPlugin.installCalled = true
+
 	return mockPlugin.installError
 }
 func (*mockPlugin) ListBinPaths() string                        { return "" }
@@ -284,9 +366,9 @@ func (*mockPlugin) ResolveVersion(_ context.Context, version string) (string, er
 }
 func (*mockPlugin) ListLegacyFilenames() []string            { return nil }
 func (*mockPlugin) ParseLegacyFile(_ string) (string, error) { return "", nil }
-func (*mockPlugin) Help() PluginHelp                         { return PluginHelp{} }
+func (*mockPlugin) Help() asdf.PluginHelp                    { return asdf.PluginHelp{} }
 
-func TestInstallToolchain_Sequential(t *testing.T) {
+func TestInstallWithDependencies_Sequential(t *testing.T) {
 	// Not parallel because it uses t.Setenv
 	t.Run("installs toolchain successfully", func(t *testing.T) {
 		tempDir := t.TempDir()
@@ -296,7 +378,7 @@ func TestInstallToolchain_Sequential(t *testing.T) {
 			latestVersion: "1.2.3",
 		}
 
-		err := InstallToolchain(t.Context(), "test-tool", plugin)
+		err := asdf.InstallWithDependencies(t.Context(), "test-tool", plugin)
 		require.NoError(t, err)
 		require.True(t, plugin.installCalled)
 
@@ -318,7 +400,7 @@ func TestInstallToolchain_Sequential(t *testing.T) {
 			latestVersion: "2.0.0",
 		}
 
-		err := InstallToolchain(t.Context(), "test-tool", plugin)
+		err := asdf.InstallWithDependencies(t.Context(), "test-tool", plugin)
 		require.NoError(t, err)
 
 		installPath := filepath.Join(customDir, "installs", "test-tool", "2.0.0")
@@ -334,7 +416,7 @@ func TestInstallToolchain_Sequential(t *testing.T) {
 			latestVersion: "3.0.0",
 		}
 
-		err := InstallToolchain(t.Context(), "test-tool", plugin)
+		err := asdf.InstallWithDependencies(t.Context(), "test-tool", plugin)
 		require.NoError(t, err)
 
 		installPath := filepath.Join(homeDir, ".asdf", "installs", "test-tool", "3.0.0")
@@ -349,7 +431,7 @@ func TestInstallToolchain_Sequential(t *testing.T) {
 			latestError: errTestVersionLookupFailed,
 		}
 
-		err := InstallToolchain(t.Context(), "test-tool", plugin)
+		err := asdf.InstallWithDependencies(t.Context(), "test-tool", plugin)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "determining latest version")
 		require.False(t, plugin.installCalled)
@@ -364,7 +446,7 @@ func TestInstallToolchain_Sequential(t *testing.T) {
 			installError:  errTestInstallFailed,
 		}
 
-		err := InstallToolchain(t.Context(), "test-tool", plugin)
+		err := asdf.InstallWithDependencies(t.Context(), "test-tool", plugin)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "installing test-tool")
 		require.True(t, plugin.installCalled)
@@ -378,7 +460,7 @@ func TestInstallToolchain_Sequential(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(tempDir, "downloads"), []byte("file"), 0o600))
 
 		plugin := &mockPlugin{latestVersion: "1.0.0"}
-		err := InstallToolchain(t.Context(), "tool", plugin)
+		err := asdf.InstallWithDependencies(t.Context(), "tool", plugin)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "creating download directory")
 	})
@@ -391,7 +473,7 @@ func TestInstallToolchain_Sequential(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(tempDir, "installs"), []byte("file"), 0o600))
 
 		plugin := &mockPlugin{latestVersion: "1.0.0"}
-		err := InstallToolchain(t.Context(), "tool", plugin)
+		err := asdf.InstallWithDependencies(t.Context(), "tool", plugin)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "creating install directory")
 	})
@@ -410,7 +492,7 @@ func TestEnsureGitRepo(t *testing.T) {
 		tempDir := t.TempDir()
 		repoPath := filepath.Join(tempDir, "test-repo")
 
-		err := EnsureGitRepo(
+		err := asdf.EnsureGitRepo(
 			t.Context(),
 			repoPath,
 			"https://github.com/asdf-vm/asdf.git",
@@ -429,11 +511,23 @@ func TestEnsureGitRepo(t *testing.T) {
 		repoPath := filepath.Join(tempDir, "test-repo")
 
 		// First clone
-		err := EnsureGitRepo(t.Context(), repoPath, "https://github.com/asdf-vm/asdf.git", "", "")
+		err := asdf.EnsureGitRepo(
+			t.Context(),
+			repoPath,
+			"https://github.com/asdf-vm/asdf.git",
+			"",
+			"",
+		)
 		require.NoError(t, err)
 
 		// Then update
-		err = EnsureGitRepo(t.Context(), repoPath, "https://github.com/asdf-vm/asdf.git", "", "")
+		err = asdf.EnsureGitRepo(
+			t.Context(),
+			repoPath,
+			"https://github.com/asdf-vm/asdf.git",
+			"",
+			"",
+		)
 		require.NoError(t, err)
 	})
 
@@ -443,7 +537,13 @@ func TestEnsureGitRepo(t *testing.T) {
 		tempDir := t.TempDir()
 		repoPath := filepath.Join(tempDir, "test-repo")
 
-		err := EnsureGitRepo(t.Context(), repoPath, "https://github.com/asdf-vm/asdf.git", "", "")
+		err := asdf.EnsureGitRepo(
+			t.Context(),
+			repoPath,
+			"https://github.com/asdf-vm/asdf.git",
+			"",
+			"",
+		)
 		require.NoError(t, err)
 	})
 
@@ -453,7 +553,13 @@ func TestEnsureGitRepo(t *testing.T) {
 		tempDir := t.TempDir()
 		repoPath := filepath.Join(tempDir, "test-repo")
 
-		err := EnsureGitRepo(t.Context(), repoPath, "https://invalid-url-that-does-not-exist.local/repo.git", "", "")
+		err := asdf.EnsureGitRepo(
+			t.Context(),
+			repoPath,
+			"https://invalid-url-that-does-not-exist.local/repo.git",
+			"",
+			"",
+		)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "cloning")
 	})
@@ -468,45 +574,85 @@ func TestEnsureGitRepo(t *testing.T) {
 
 		repoPath := filepath.Join(roParent, "subdir", "repo")
 
-		err := EnsureGitRepo(t.Context(), repoPath, "http://example.com/repo", "", "")
+		err := asdf.EnsureGitRepo(t.Context(), repoPath, "http://example.com/repo", "", "")
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "creating directory")
 	})
 }
 
 func TestToolchainsExtraCoverage(t *testing.T) {
-	// Not parallel due to global function mocking
-	t.Run("resolveToolVersionsPath returns error when home dir check fails", func(t *testing.T) {
-		mockExec(t, nil)
-		// We need to override osGetwd manually to return error, as mockOS doesn't support error injection
-		origGetwd := osGetwd
+	asdf.MockExecForTests(t, nil)
+	// We need to override osGetwd manually to return error, as mockOS doesn't support error injection
+	restoreGetwd := asdf.SetOSGetwdForTests(
+		func() (string, error) { return "", errTestWdError },
+	)
+	defer restoreGetwd()
 
-		origUserHomeDir := osUserHomeDir
-		defer func() {
-			osGetwd = origGetwd
-			osUserHomeDir = origUserHomeDir
-		}()
+	restoreHome := asdf.SetOSUserHomeDirForTests(
+		func() (string, error) { return "", errTestHomeError },
+	)
+	defer restoreHome()
 
-		osGetwd = func() (string, error) { return "", errTestWdError }
-		osUserHomeDir = func() (string, error) { return "", errTestHomeError }
+	_, err := asdf.ResolveToolVersionsPath()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "determining home directory")
 
-		_, err := resolveToolVersionsPath()
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "determining home directory")
-	})
+	tempDir := t.TempDir()
+	t.Setenv("ASDF_DATA_DIR", tempDir)
 
-	t.Run("InstallToolchain returns error when download path exists as file", func(t *testing.T) {
+	// Create file blocking download path
+	downloadPath := filepath.Join(tempDir, "downloads", "tool", "1.0.0")
+	require.NoError(t, os.MkdirAll(filepath.Dir(downloadPath), 0o755))
+	require.NoError(t, os.WriteFile(downloadPath, []byte("file"), 0o600))
+
+	plugin := &mockPlugin{latestVersion: "1.0.0"}
+	err = asdf.InstallWithDependencies(t.Context(), "tool", plugin)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "creating download directory")
+
+	t.Setenv("ASDF_DATA_DIR", "")
+
+	restore := asdf.SetOSUserHomeDirForTests(
+		func() (string, error) { return "", errTestHomeError },
+	)
+	defer restore()
+
+	plugin = &mockPlugin{latestVersion: "1.0.0"}
+	err = asdf.InstallWithDependencies(t.Context(), "tool", plugin)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "determining home directory")
+}
+
+type mockPluginWithDeps struct {
+	mockPlugin
+
+	deps []string
+}
+
+func (m *mockPluginWithDeps) Dependencies() []string {
+	return m.deps
+}
+
+func TestInstallWithDependencies_WithDeps(t *testing.T) {
+	t.Run("handles plugin with dependencies", func(t *testing.T) {
 		tempDir := t.TempDir()
 		t.Setenv("ASDF_DATA_DIR", tempDir)
 
-		// Create file blocking download path
-		downloadPath := filepath.Join(tempDir, "downloads", "tool", "1.0.0")
-		require.NoError(t, os.MkdirAll(filepath.Dir(downloadPath), 0o755))
-		require.NoError(t, os.WriteFile(downloadPath, []byte("file"), 0o600))
+		asdf.MockExecForTests(t, func(string) (string, error) { return "", errTestNotFound })
+		asdf.MockOSForTests(t, tempDir, tempDir)
 
-		plugin := &mockPlugin{latestVersion: "1.0.0"}
-		err := InstallToolchain(t.Context(), "tool", plugin)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "creating download directory")
+		plugin := &mockPluginWithDeps{
+			mockPlugin: mockPlugin{latestVersion: "1.0.0"},
+			deps:       []string{"golang"},
+		}
+
+		err := asdf.InstallWithDependencies(t.Context(), "tool", plugin)
+		require.NoError(t, err)
+
+		// Check that .tool-versions was updated with dependency
+		toolVersionsPath := filepath.Join(tempDir, ".tool-versions")
+		data, err := os.ReadFile(toolVersionsPath)
+		require.NoError(t, err)
+		require.Contains(t, string(data), "golang")
 	})
 }

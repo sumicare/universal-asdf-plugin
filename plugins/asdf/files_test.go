@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package asdf
+package asdf_test
 
 import (
 	"os"
@@ -21,7 +21,53 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/sumicare/universal-asdf-plugin/plugins/asdf"
 )
+
+func TestCopyFile(t *testing.T) {
+	t.Parallel()
+
+	t.Run("copies file successfully", func(t *testing.T) {
+		t.Parallel()
+
+		srcDir := t.TempDir()
+		dstDir := t.TempDir()
+
+		srcFile := filepath.Join(srcDir, "source.txt")
+		dstFile := filepath.Join(dstDir, "dest.txt")
+
+		require.NoError(t, os.WriteFile(srcFile, []byte("test content"), asdf.CommonFilePermission))
+
+		err := asdf.CopyFile(srcFile, dstFile, asdf.CommonFilePermission)
+		require.NoError(t, err)
+
+		content, err := os.ReadFile(dstFile)
+		require.NoError(t, err)
+		require.Equal(t, "test content", string(content))
+	})
+
+	t.Run("returns error for non-existent source", func(t *testing.T) {
+		t.Parallel()
+
+		err := asdf.CopyFile(
+			"/nonexistent/source.txt",
+			filepath.Join(t.TempDir(), "dest.txt"),
+			asdf.CommonFilePermission,
+		)
+		require.Error(t, err)
+	})
+
+	t.Run("returns error when destination dir does not exist", func(t *testing.T) {
+		t.Parallel()
+
+		srcDir := t.TempDir()
+		srcFile := filepath.Join(srcDir, "source.txt")
+		require.NoError(t, os.WriteFile(srcFile, []byte("test"), asdf.CommonFilePermission))
+
+		err := asdf.CopyFile(srcFile, "/nonexistent/dir/dest.txt", asdf.CommonFilePermission)
+		require.Error(t, err)
+	})
+}
 
 func TestCopyDir(t *testing.T) {
 	t.Parallel()
@@ -48,9 +94,19 @@ func TestCopyDir(t *testing.T) {
 				//     file2.txt
 				//   symlink -> file1.txt
 
-				require.NoError(t, os.WriteFile(filepath.Join(src, "file1.txt"), []byte("content1"), 0o600))
+				require.NoError(
+					t,
+					os.WriteFile(filepath.Join(src, "file1.txt"), []byte("content1"), 0o600),
+				)
 				require.NoError(t, os.Mkdir(filepath.Join(src, "subdir"), 0o755))
-				require.NoError(t, os.WriteFile(filepath.Join(src, "subdir", "file2.txt"), []byte("content2"), 0o600))
+				require.NoError(
+					t,
+					os.WriteFile(
+						filepath.Join(src, "subdir", "file2.txt"),
+						[]byte("content2"),
+						0o600,
+					),
+				)
 				require.NoError(t, os.Symlink("file1.txt", filepath.Join(src, "symlink")))
 
 				return src, filepath.Join(dst, "copied")
@@ -82,13 +138,13 @@ func TestCopyDir(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			src, dst := tt.setup(t)
 
-			err := CopyDir(src, dst)
+			err := asdf.CopyDir(src, dst)
 			if tt.wantErr {
 				require.Error(t, err)
 

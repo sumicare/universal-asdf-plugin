@@ -110,7 +110,7 @@ func (client *Client) SetToken(token string) {
 }
 
 // GetOwnerRepo extracts owner and repository name from a GitHub URL.
-func GetOwnerRepo(url string) (string, string, error) {
+func GetOwnerRepo(url string) (owner, repo string, err error) {
 	const expectedParts = 2
 
 	cleaned := strings.Replace(url, "git@github.com:", "", 1)
@@ -122,8 +122,8 @@ func GetOwnerRepo(url string) (string, string, error) {
 		return "", "", ErrInvalidURL
 	}
 
-	owner := parts[0]
-	repo := strings.TrimSuffix(parts[1], ".git")
+	owner = parts[0]
+	repo = strings.TrimSuffix(parts[1], ".git")
 
 	return owner, repo, nil
 }
@@ -197,7 +197,12 @@ func (client *Client) fetchJSON(ctx context.Context, url string, result any) err
 	if resp.StatusCode != http.StatusOK {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return fmt.Errorf("%w: %d (failed to read body: %w)", ErrHTTPRequest, resp.StatusCode, err)
+			return fmt.Errorf(
+				"%w: %d (failed to read body: %w)",
+				ErrHTTPRequest,
+				resp.StatusCode,
+				err,
+			)
 		}
 
 		return fmt.Errorf("%w: %d %s", ErrHTTPRequest, resp.StatusCode, string(body))

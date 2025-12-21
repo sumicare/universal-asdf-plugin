@@ -62,7 +62,16 @@ Source: https://github.com/onsi/ginkgo`,
 		BuildVersion: func(ctx context.Context, _ /* version */, sourceDir, installPath string) error {
 			goPath, err := exec.LookPath("go")
 			if err != nil {
-				return fmt.Errorf("go is required to install ginkgo but was not found in PATH: %w", err)
+				return fmt.Errorf(
+					"go is required to install ginkgo but was not found in PATH: %w",
+					err,
+				)
+			}
+
+			// Ensure source directory has .tool-versions with golang so the asdf shim works
+			sourceToolVersions := filepath.Join(sourceDir, ".tool-versions")
+			if err := asdf.EnsureToolVersionsFile(ctx, sourceToolVersions, "golang"); err != nil {
+				return fmt.Errorf("ensuring .tool-versions for ginkgo build: %w", err)
 			}
 
 			binDir := filepath.Join(installPath, "bin")
@@ -98,6 +107,11 @@ Source: https://github.com/onsi/ginkgo`,
 // Name returns the plugin name.
 func (*GinkgoPlugin) Name() string {
 	return "ginkgo"
+}
+
+// Dependencies returns the list of plugins that must be installed before Ginkgo.
+func (*GinkgoPlugin) Dependencies() []string {
+	return []string{"golang"}
 }
 
 // ListBinPaths returns the binary paths for Ginkgo installations.
@@ -165,8 +179,12 @@ func (*GinkgoPlugin) Download(_ context.Context, _, _ string) error {
 }
 
 // Install downloads the Ginkgo source archive and builds the ginkgo CLI using go build.
-func (plugin *GinkgoPlugin) Install(ctx context.Context, version, downloadPath, installPath string) error {
-	if err := plugin.SourceBuildPlugin.Install(ctx, version, downloadPath, installPath); err != nil {
+func (plugin *GinkgoPlugin) Install(
+	ctx context.Context,
+	version, downloadPath, installPath string,
+) error {
+	err := plugin.SourceBuildPlugin.Install(ctx, version, downloadPath, installPath)
+	if err != nil {
 		if errors.Is(err, errGinkgoBinaryNotFound) {
 			return fmt.Errorf("%w: %s", errGinkgoBinaryNotFound, version)
 		}
@@ -174,7 +192,7 @@ func (plugin *GinkgoPlugin) Install(ctx context.Context, version, downloadPath, 
 		return err
 	}
 
-	fmt.Printf("Ginkgo %s installed successfully\n", version)
+	_, _ = fmt.Fprintf(os.Stdout, "Ginkgo %s installed successfully\n", version)
 
 	return nil
 }

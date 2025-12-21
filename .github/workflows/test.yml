@@ -41,11 +41,11 @@ jobs:
 
       - name: Run tests
         id: test
-        run: go test -v -race -count=1 -timeout=30m -coverprofile=coverage.out ./...
+        run: ./scripts/test.sh --race
 
       - name: Filter coverage
         run: |
-          grep -v '^github\.com/sumicare/universal-asdf-plugin/plugins/' coverage.out > coverage_filtered.out
+          grep -E '^(mode:|^github\.com/sumicare/universal-asdf-plugin/plugins/(asdf|github)/)' coverage.out > coverage_filtered.out
           mv coverage_filtered.out coverage.out
 
       - name: Clean cache on failure

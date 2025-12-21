@@ -102,6 +102,7 @@ func NewBinaryPlugin(config *BinaryPluginConfig) *BinaryPlugin {
 // WithGithubClient sets the GitHub client.
 func (plugin *BinaryPlugin) WithGithubClient(client *github.Client) *BinaryPlugin {
 	plugin.Github = client
+
 	return plugin
 }
 
@@ -165,6 +166,7 @@ func (plugin *BinaryPlugin) Download(ctx context.Context, version, downloadPath 
 
 	if info, err := os.Stat(binaryPath); err == nil && info.Size() > 1024 {
 		Msgf("Using cached download for %s %s", plugin.Config.Name, version)
+
 		return nil
 	}
 
@@ -182,17 +184,44 @@ func (plugin *BinaryPlugin) Download(ctx context.Context, version, downloadPath 
 }
 
 // Install installs the downloaded version.
-func (plugin *BinaryPlugin) Install(_ context.Context, version, downloadPath, installPath string) error {
+func (plugin *BinaryPlugin) Install(
+	ctx context.Context,
+	version, downloadPath, installPath string,
+) error {
 	entries, err := os.ReadDir(downloadPath)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
 	var binaryName string
+
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			binaryName = entry.Name()
+
 			break
+		}
+	}
+
+	if binaryName == "" {
+		// Attempt to download if not found
+		err := plugin.Download(ctx, version, downloadPath)
+		if err != nil {
+			return fmt.Errorf("downloading %s %s: %w", plugin.Config.Name, version, err)
+		}
+
+		// Re-read directory
+		entries, err = os.ReadDir(downloadPath)
+		if err != nil {
+			return err
+		}
+
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				binaryName = entry.Name()
+
+				break
+			}
 		}
 	}
 
@@ -213,27 +242,32 @@ func (plugin *BinaryPlugin) Install(_ context.Context, version, downloadPath, in
 
 	switch plugin.Config.ArchiveType {
 	case "gz":
-		if err := ExtractGz(binaryPath, destPath); err != nil {
+		err := ExtractGz(binaryPath, destPath)
+		if err != nil {
 			return fmt.Errorf("failed to extract gz: %w", err)
 		}
 
 	case "tar.gz":
-		if err := extractAndCopyBinary(binaryPath, destPath, plugin.Config.BinaryName, ExtractTarGz); err != nil {
+		err := extractAndCopyBinary(binaryPath, destPath, plugin.Config.BinaryName, ExtractTarGz)
+		if err != nil {
 			return err
 		}
 
 	case "tar.xz":
-		if err := extractAndCopyBinary(binaryPath, destPath, plugin.Config.BinaryName, ExtractTarXz); err != nil {
+		err := extractAndCopyBinary(binaryPath, destPath, plugin.Config.BinaryName, ExtractTarXz)
+		if err != nil {
 			return err
 		}
 
 	case "zip":
-		if err := extractAndCopyBinary(binaryPath, destPath, plugin.Config.BinaryName, ExtractZip); err != nil {
+		err := extractAndCopyBinary(binaryPath, destPath, plugin.Config.BinaryName, ExtractZip)
+		if err != nil {
 			return err
 		}
 
 	default:
-		if err := CopyFile(binaryPath, destPath, CommonExecutablePermission); err != nil {
+		err := CopyFile(binaryPath, destPath, CommonExecutablePermission)
+		if err != nil {
 			return fmt.Errorf("failed to copy binary: %w", err)
 		}
 	}
@@ -248,7 +282,10 @@ func (plugin *BinaryPlugin) Install(_ context.Context, version, downloadPath, in
 }
 
 // extractAndCopyBinary extracts an archive to a temp directory, finds the binary by name, and copies it to destPath.
-func extractAndCopyBinary(archivePath, destPath, binaryName string, extractFn func(string, string) error) error {
+func extractAndCopyBinary(
+	archivePath, destPath, binaryName string,
+	extractFn func(string, string) error,
+) error {
 	tempDir, err := os.MkdirTemp("", "asdf-extract-*")
 	if err != nil {
 		return err
@@ -268,6 +305,7 @@ func extractAndCopyBinary(archivePath, destPath, binaryName string, extractFn fu
 
 		if !info.IsDir() && info.Name() == binaryName {
 			foundPath = path
+
 			return filepath.SkipAll
 		}
 

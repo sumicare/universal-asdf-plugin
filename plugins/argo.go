@@ -67,14 +67,14 @@ Source: https://github.com/argoproj/argo-workflows`,
 		BuildVersion: func(ctx context.Context, _ /* version */, sourceDir, installPath string) error {
 			goPath, err := exec.LookPath("go")
 			if err != nil {
-				return fmt.Errorf("go is required to install argo but was not found in PATH: %w", err)
-			}
-
-			if err := asdf.EnsureToolchains(ctx, "golang", "nodejs"); err != nil {
-				return err
+				return fmt.Errorf(
+					"go is required to install argo but was not found in PATH: %w",
+					err,
+				)
 			}
 
 			npmPath := "npm"
+
 			if asdfPath, lookErr := exec.LookPath("asdf"); lookErr == nil {
 				whichCmd := exec.CommandContext(ctx, asdfPath, "which", "npm")
 
@@ -90,6 +90,7 @@ Source: https://github.com/argoproj/argo-workflows`,
 			baseEnv := os.Environ()
 
 			nodePath := "node"
+
 			if asdfPath, lookErr := exec.LookPath("asdf"); lookErr == nil {
 				whichNode := exec.CommandContext(ctx, asdfPath, "which", "node")
 
@@ -103,11 +104,40 @@ Source: https://github.com/argoproj/argo-workflows`,
 
 			nodeDir := filepath.Dir(nodePath)
 
-			baseEnv = append(baseEnv, "PATH="+nodeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			baseEnv = append(baseEnv,
+				"PATH="+nodeDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"CI=true", // Ensure non-interactive mode for build tools
+			)
+
+			// Ensure source directory has .tool-versions with golang
+			sourceToolVersions := filepath.Join(sourceDir, ".tool-versions")
+			if err := asdf.EnsureToolVersionsFile(ctx, sourceToolVersions, "golang"); err != nil {
+				return err
+			}
 
 			uiToolVersions := filepath.Join(uiDir, ".tool-versions")
 			if err := asdf.EnsureToolVersionsFile(ctx, uiToolVersions, "nodejs", "golang"); err != nil {
 				return err
+			}
+
+			// Install global webpack as requested to avoid issues with yarn install/build
+			// We install webpack-cli as well since it's often required.
+			installWebpack := exec.CommandContext(
+				ctx,
+				npmPath,
+				"install",
+				"-g",
+				"webpack",
+				"webpack-cli",
+			)
+
+			installWebpack.Dir = uiDir // Run in UI dir context, though global install shouldn't strictly require it
+			installWebpack.Stdout = os.Stderr
+			installWebpack.Stderr = os.Stderr
+
+			installWebpack.Env = baseEnv
+			if err := installWebpack.Run(); err != nil {
+				return fmt.Errorf("installing global webpack: %w", err)
 			}
 
 			yarnInstall := exec.CommandContext(ctx, npmPath, "exec", "yarn", "install")
@@ -121,7 +151,19 @@ Source: https://github.com/argoproj/argo-workflows`,
 				return fmt.Errorf("installing argo UI dependencies with yarn: %w", err)
 			}
 
+			// Add node_modules/.bin to PATH for webpack and other build tools
+			nodeModulesBin := filepath.Join(uiDir, "node_modules", ".bin")
+
+			// Construct PATH that includes:
+			// 1. local node_modules/.bin (for project-specific tools)
+			// 2. nodeDir (for global webpack/webpack-cli and node/npm)
+			// 3. original PATH (for system tools)
+			buildPath := nodeModulesBin + string(os.PathListSeparator) +
+				nodeDir + string(os.PathListSeparator) +
+				os.Getenv("PATH")
+
 			baseEnv = append(baseEnv,
+				"PATH="+buildPath,
 				"NODE_ENV=production",
 				"NODE_OPTIONS=--max-old-space-size=2048",
 			)
@@ -138,7 +180,20 @@ Source: https://github.com/argoproj/argo-workflows`,
 			}
 
 			binDir := filepath.Join(installPath, "bin")
-			buildCmd := exec.CommandContext(ctx, goPath, "build", "-o", filepath.Join(binDir, "argo"), "./cmd/argo")
+			if err := os.MkdirAll(binDir, asdf.CommonDirectoryPermission); err != nil {
+				return fmt.Errorf("creating bin directory: %w", err)
+			}
+
+			fmt.Fprintf(os.Stderr, "Building argo binary in %s from %s\n", binDir, sourceDir)
+
+			buildCmd := exec.CommandContext(
+				ctx,
+				goPath,
+				"build",
+				"-o",
+				filepath.Join(binDir, "argo"),
+				"./cmd/argo",
+			)
 
 			buildCmd.Dir = sourceDir
 			buildCmd.Stdout = os.Stderr
@@ -148,6 +203,14 @@ Source: https://github.com/argoproj/argo-workflows`,
 			if err := buildCmd.Run(); err != nil {
 				return fmt.Errorf("building argo: %w", err)
 			}
+
+			// Verify the binary was created
+			binaryPath := filepath.Join(binDir, "argo")
+			if _, err := os.Stat(binaryPath); err != nil {
+				return fmt.Errorf("argo binary not found after build at %s: %w", binaryPath, err)
+			}
+
+			fmt.Fprintf(os.Stderr, "Argo binary created at %s\n", binaryPath)
 
 			return nil
 		},
@@ -168,6 +231,11 @@ Source: https://github.com/argoproj/argo-workflows`,
 // Name returns the plugin name.
 func (*ArgoPlugin) Name() string {
 	return "argo"
+}
+
+// Dependencies returns the list of plugins that must be installed before Argo.
+func (*ArgoPlugin) Dependencies() []string {
+	return []string{"golang", "nodejs"}
 }
 
 // ListBinPaths returns the binary paths for Argo installations.
@@ -236,8 +304,12 @@ func (*ArgoPlugin) Download(_ context.Context, _, _ string) error {
 
 // Install method downloads the Argo Workflows source
 // archive for the requested version and builds the argo CLI using go build.
-func (plugin *ArgoPlugin) Install(ctx context.Context, version, downloadPath, installPath string) error {
-	if err := plugin.SourceBuildPlugin.Install(ctx, version, downloadPath, installPath); err != nil {
+func (plugin *ArgoPlugin) Install(
+	ctx context.Context,
+	version, downloadPath, installPath string,
+) error {
+	err := plugin.SourceBuildPlugin.Install(ctx, version, downloadPath, installPath)
+	if err != nil {
 		if errors.Is(err, errArgoBinaryNotFound) {
 			return fmt.Errorf("%w: %s", errArgoBinaryNotFound, version)
 		}
@@ -245,7 +317,7 @@ func (plugin *ArgoPlugin) Install(ctx context.Context, version, downloadPath, in
 		return err
 	}
 
-	fmt.Printf("Argo %s installed successfully\n", version)
+	_, _ = fmt.Fprintf(os.Stdout, "Argo %s installed successfully\n", version)
 
 	return nil
 }

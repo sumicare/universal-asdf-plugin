@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package mock
+package mock_test
 
 import (
 	"encoding/json"
@@ -22,17 +22,29 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	githubmock "github.com/sumicare/universal-asdf-plugin/plugins/github/mock"
 )
 
 func TestMockServer(t *testing.T) {
 	t.Parallel()
 
-	testRepoDataEndpoint := func(t *testing.T, server *Server, setup func(*Server), endpoint string, expectedLen int) {
+	testRepoDataEndpoint := func(
+		t *testing.T,
+		server *githubmock.Server,
+		setup func(*githubmock.Server),
+		endpoint string,
+		expectedLen int,
+	) {
 		t.Helper()
 
 		setup(server)
 
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL()+endpoint, http.NoBody)
+		req, err := http.NewRequestWithContext(
+			t.Context(),
+			http.MethodGet,
+			server.URL()+endpoint,
+			http.NoBody,
+		)
 		require.NoError(t, err)
 
 		resp, err := http.DefaultClient.Do(req)
@@ -54,7 +66,7 @@ func TestMockServer(t *testing.T) {
 	t.Run("NewServer creates a server with valid URL", func(t *testing.T) {
 		t.Parallel()
 
-		server := NewServer()
+		server := githubmock.NewServer()
 		t.Cleanup(server.Close)
 
 		require.NotNil(t, server)
@@ -65,13 +77,13 @@ func TestMockServer(t *testing.T) {
 	t.Run("AddTags adds tags for a repository", func(t *testing.T) {
 		t.Parallel()
 
-		server := NewServer()
+		server := githubmock.NewServer()
 		t.Cleanup(server.Close)
 
 		testRepoDataEndpoint(
 			t,
 			server,
-			func(s *Server) { s.AddTags("golang", "go", []string{"go1.20.0", "go1.21.0"}) },
+			func(s *githubmock.Server) { s.AddTags("golang", "go", []string{"go1.20.0", "go1.21.0"}) },
 			"/repos/golang/go/git/refs/tags",
 			2,
 		)
@@ -80,13 +92,13 @@ func TestMockServer(t *testing.T) {
 	t.Run("AddReleases adds releases for a repository", func(t *testing.T) {
 		t.Parallel()
 
-		server := NewServer()
+		server := githubmock.NewServer()
 		t.Cleanup(server.Close)
 
 		testRepoDataEndpoint(
 			t,
 			server,
-			func(s *Server) { s.AddReleases("kubernetes", "kubernetes", []string{"v1.28.0", "v1.29.0"}) },
+			func(s *githubmock.Server) { s.AddReleases("kubernetes", "kubernetes", []string{"v1.28.0", "v1.29.0"}) },
 			"/repos/kubernetes/kubernetes/releases",
 			2,
 		)
@@ -120,10 +132,15 @@ func TestMockServer(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 
-				server := NewServer()
+				server := githubmock.NewServer()
 				t.Cleanup(server.Close)
 
-				req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL()+tt.path, http.NoBody)
+				req, err := http.NewRequestWithContext(
+					t.Context(),
+					http.MethodGet,
+					server.URL()+tt.path,
+					http.NoBody,
+				)
 				require.NoError(t, err)
 
 				resp, err := http.DefaultClient.Do(req)
@@ -140,8 +157,16 @@ func TestMockServer(t *testing.T) {
 	t.Run("extractRepoPath extracts owner/repo from path", func(t *testing.T) {
 		t.Parallel()
 
-		require.Equal(t, "golang/go", extractRepoPath("/repos/golang/go/git/refs/tags", "/git/refs/tags"))
-		require.Equal(t, "k8s/k8s", extractRepoPath("/repos/k8s/k8s/releases", "/releases"))
-		require.Equal(t, "/invalid", extractRepoPath("/invalid", ""))
+		require.Equal(
+			t,
+			"golang/go",
+			githubmock.ExtractRepoPathForTests("/repos/golang/go/git/refs/tags", "/git/refs/tags"),
+		)
+		require.Equal(
+			t,
+			"k8s/k8s",
+			githubmock.ExtractRepoPathForTests("/repos/k8s/k8s/releases", "/releases"),
+		)
+		require.Equal(t, "/invalid", githubmock.ExtractRepoPathForTests("/invalid", ""))
 	})
 }

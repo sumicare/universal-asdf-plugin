@@ -24,11 +24,14 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"testing"
 	"time"
 )
 
@@ -70,6 +73,15 @@ type (
 		Help() PluginHelp
 	}
 
+	// PluginWithDependencies extends Plugin with dependency information.
+	PluginWithDependencies interface {
+		Plugin
+		// Dependencies returns the list of plugin names that must be installed
+		// before this plugin. Order matters: dependencies are installed in the
+		// order they are listed.
+		Dependencies() []string
+	}
+
 	// PluginHelp contains help information for a plugin.
 	PluginHelp struct {
 		// Overview is a general description of the plugin and tool.
@@ -101,6 +113,10 @@ type (
 )
 
 var (
+	// httpClient is the HTTP client used by the package functions.
+	// It can be overridden for testing purposes.
+	httpClient atomic.Value //nolint:gochecknoglobals // used to lock the client
+
 	// errPlatformNotSupported is returned when the running OS cannot be mapped to a supported platform.
 	errPlatformNotSupported = errors.New("platform not supported")
 	// errArchNotSupported is returned when the running architecture cannot be mapped to a supported arch.
@@ -114,6 +130,12 @@ var (
 	// errInvalidArchiveFilePathZip is returned when a zip entry would escape the extraction directory.
 	errInvalidArchiveFilePathZip = errors.New("invalid file path in zip archive")
 )
+
+func init() { //nolint:gochecknoinits // used to lock the client
+	httpClient.Store(&http.Client{
+		Timeout: 30 * time.Minute,
+	})
+}
 
 const (
 	// CommonFilePermission is the default file permission used when creating files.
@@ -166,11 +188,23 @@ func GetArch() (string, error) {
 	}
 }
 
-// HTTPClient returns an HTTP client with reasonable defaults.
+// HTTPClient returns the HTTP client used by the package functions.
 func HTTPClient() *http.Client {
-	return &http.Client{
-		Timeout: 30 * time.Minute,
+	if client, ok := httpClient.Load().(*http.Client); ok && client != nil {
+		return client
 	}
+
+	return &http.Client{Timeout: 30 * time.Minute}
+}
+
+// WithHTTPClient sets the HTTP client used by the package functions.
+// This is intended for testing purposes only.
+func WithHTTPClient(client *http.Client) {
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Minute}
+	}
+
+	httpClient.Store(client)
 }
 
 // DownloadFile downloads a file from URL to the specified path.
@@ -190,15 +224,41 @@ func DownloadFile(ctx context.Context, url, destPath string) error {
 		return fmt.Errorf("%w with status %d for %s", errDownloadFailed, resp.StatusCode, url)
 	}
 
-	out, err := os.Create(destPath)
+	// Download to a temporary file first
+	// Use os.CreateTemp to avoid race conditions with multiple processes downloading the same file
+	// and to ensure the file is on the same filesystem as the destination for atomic rename.
+	tempFile, err := os.CreateTemp(
+		filepath.Dir(destPath),
+		fmt.Sprintf(".%s.tmp-*", filepath.Base(destPath)),
+	)
 	if err != nil {
-		return fmt.Errorf("creating file %s: %w", destPath, err)
+		return fmt.Errorf("creating temp file in %s: %w", filepath.Dir(destPath), err)
 	}
-	defer out.Close()
 
-	_, err = io.Copy(out, resp.Body)
+	tempPath := tempFile.Name()
+
+	// Ensure temp file is cleaned up if function returns error
+	defer func() {
+		// Close the file (idempotent)
+		tempFile.Close()
+		// Remove the file if it still exists (rename moves it, so this handles failure cases)
+		if _, err := os.Stat(tempPath); err == nil {
+			os.Remove(tempPath)
+		}
+	}()
+
+	_, err = io.Copy(tempFile, resp.Body)
 	if err != nil {
 		return fmt.Errorf("writing file %s: %w", destPath, err)
+	}
+
+	// Close file before renaming to ensure buffers are flushed
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("closing temp file: %w", err)
+	}
+
+	if err := os.Rename(tempPath, destPath); err != nil {
+		return fmt.Errorf("renaming temp file to %s: %w", destPath, err)
 	}
 
 	return nil
@@ -247,7 +307,12 @@ func VerifySHA256(filePath, expectedHash string) error {
 	trimmedExpectedHash := strings.TrimSpace(strings.Split(expectedHash, " ")[0])
 
 	if actualHash != trimmedExpectedHash {
-		return fmt.Errorf("%w: expected %s, got %s", errChecksumMismatchGeneric, trimmedExpectedHash, actualHash)
+		return fmt.Errorf(
+			"%w: expected %s, got %s",
+			errChecksumMismatchGeneric,
+			trimmedExpectedHash,
+			actualHash,
+		)
 	}
 
 	return nil
@@ -260,11 +325,21 @@ func EnsureDir(path string) error {
 
 // Msgf prints a success message to stderr with formatting.
 func Msgf(format string, args ...any) {
+	// Skip output during testing to avoid interfering with test runner
+	if testing.Testing() {
+		return
+	}
+
 	fmt.Fprintf(os.Stderr, "\033[32m"+format+"\033[39m\n", args...)
 }
 
 // Errf prints an error message to stderr with formatting.
 func Errf(format string, args ...any) {
+	// Skip output during testing to avoid interfering with test runner
+	if testing.Testing() {
+		return
+	}
+
 	fmt.Fprintf(os.Stderr, "\033[31m"+format+"\033[39m\n", args...)
 }
 
@@ -307,7 +382,7 @@ func ParseVersionParts(version string) []int {
 
 	parts := make([]int, 0, len(matches))
 	for i := range matches {
-		r, _ := strconv.Atoi(matches[i]) //nolint:errcheck // it should be fine
+		r, _ := strconv.Atoi(matches[i])
 
 		parts = append(parts, r)
 	}
@@ -444,6 +519,7 @@ func LatestVersion(versions []string, pattern string) string {
 
 	if len(stable) > 0 {
 		SortVersions(stable)
+
 		return stable[len(stable)-1]
 	}
 
@@ -472,6 +548,7 @@ func LatestStableWithQuery(
 	filteredVersions := versions
 	if query != "" {
 		filteredVersions = nil
+
 		for _, v := range versions {
 			if strings.HasPrefix(v, query) {
 				filteredVersions = append(filteredVersions, v)

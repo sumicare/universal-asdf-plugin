@@ -175,8 +175,12 @@ Getting Started: https://asdf-vm.com/guide/getting-started.html`,
 }
 
 // Install installs asdf to the specified path and creates the shim.
-func (plugin *AsdfPlugin) Install(ctx context.Context, version, downloadPath, installPath string) error {
-	if err := plugin.BinaryPlugin.Install(ctx, version, downloadPath, installPath); err != nil {
+func (plugin *AsdfPlugin) Install(
+	ctx context.Context,
+	version, downloadPath, installPath string,
+) error {
+	err := plugin.BinaryPlugin.Install(ctx, version, downloadPath, installPath)
+	if err != nil {
 		return err
 	}
 

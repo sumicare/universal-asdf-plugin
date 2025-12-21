@@ -67,12 +67,15 @@ func NewRustPlugin() asdf.Plugin {
 			downloadPath := sourceDir
 			if downloadPath == "" {
 				downloadPath = filepath.Join(installPath, ".download")
-				if err := os.MkdirAll(downloadPath, asdf.CommonDirectoryPermission); err != nil {
+
+				err := os.MkdirAll(downloadPath, asdf.CommonDirectoryPermission)
+				if err != nil {
 					return fmt.Errorf("creating download directory: %w", err)
 				}
 			}
 
-			if err := plugin.Download(ctx, version, downloadPath); err != nil {
+			err := plugin.Download(ctx, version, downloadPath)
+			if err != nil {
 				return err
 			}
 
@@ -98,7 +101,8 @@ func NewRustPlugin() asdf.Plugin {
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 
-			if err := cmd.Run(); err != nil {
+			err = cmd.Run()
+			if err != nil {
 				return fmt.Errorf("running rustup-init: %w", err)
 			}
 
@@ -218,6 +222,7 @@ func (*RustPlugin) Download(ctx context.Context, version, downloadPath string) e
 	scriptPath := filepath.Join(downloadPath, "rustup-init.sh")
 	if info, err := os.Stat(scriptPath); err == nil && info.Size() > 1024 {
 		asdf.Msgf("Using cached download for rust %s", version)
+
 		return nil
 	}
 

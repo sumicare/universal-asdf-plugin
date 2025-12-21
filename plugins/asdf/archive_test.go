@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package asdf
+package asdf_test
 
 import (
 	"archive/tar"
@@ -25,25 +25,51 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/sumicare/universal-asdf-plugin/plugins/asdf"
 	"github.com/ulikunitz/xz"
 )
 
 func TestExtractTarXz(t *testing.T) {
 	t.Parallel()
 
-	tarXzTempDir := t.TempDir()
+	t.Run("extracts tar.xz archive", func(t *testing.T) {
+		t.Parallel()
 
-	archivePath := filepath.Join(tarXzTempDir, "test.tar.xz")
-	CreateTestTarXz(t, archivePath, map[string]string{
-		"test/file.txt": "file content",
+		tarXzTempDir := t.TempDir()
+
+		archivePath := filepath.Join(tarXzTempDir, "test.tar.xz")
+		CreateTestTarXz(t, archivePath, map[string]string{
+			"test/file.txt": "file content",
+		})
+
+		destDir := filepath.Join(tarXzTempDir, "extracted-tarxz")
+		require.NoError(t, asdf.ExtractTarXz(archivePath, destDir))
+
+		content, err := os.ReadFile(filepath.Join(destDir, "test", "file.txt"))
+		require.NoError(t, err)
+		require.Equal(t, "file content", string(content))
 	})
 
-	destDir := filepath.Join(tarXzTempDir, "extracted-tarxz")
-	require.NoError(t, ExtractTarXz(archivePath, destDir))
+	t.Run("returns error for non-existent file", func(t *testing.T) {
+		t.Parallel()
 
-	content, err := os.ReadFile(filepath.Join(destDir, "test", "file.txt"))
-	require.NoError(t, err)
-	require.Equal(t, "file content", string(content))
+		err := asdf.ExtractTarXz("/nonexistent/archive.tar.xz", t.TempDir())
+		require.Error(t, err)
+	})
+
+	t.Run("returns error for invalid xz file", func(t *testing.T) {
+		t.Parallel()
+
+		tmpDir := t.TempDir()
+		invalidPath := filepath.Join(tmpDir, "invalid.tar.xz")
+		require.NoError(
+			t,
+			os.WriteFile(invalidPath, []byte("not an xz file"), asdf.CommonFilePermission),
+		)
+
+		err := asdf.ExtractTarXz(invalidPath, filepath.Join(tmpDir, "dest"))
+		require.Error(t, err)
+	})
 }
 
 func TestExtractTarGz(t *testing.T) {
@@ -97,7 +123,7 @@ func TestExtractTarGz(t *testing.T) {
 			},
 		}
 
-		for _, tt := range tests { //nolint:gocritic // let's waste some memory
+		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 
@@ -106,7 +132,7 @@ func TestExtractTarGz(t *testing.T) {
 				tt.setup(t, archivePath)
 
 				destDir := filepath.Join(tempDir, "extracted")
-				require.NoError(t, ExtractTarGz(archivePath, destDir))
+				require.NoError(t, asdf.ExtractTarGz(archivePath, destDir))
 				tt.validate(t, destDir)
 			})
 		}
@@ -132,7 +158,10 @@ func TestExtractTarGz(t *testing.T) {
 					t.Helper()
 
 					path := filepath.Join(t.TempDir(), "invalid.tar.gz")
-					require.NoError(t, os.WriteFile(path, []byte("not a gzip file"), CommonFilePermission))
+					require.NoError(
+						t,
+						os.WriteFile(path, []byte("not a gzip file"), asdf.CommonFilePermission),
+					)
 
 					return path
 				},
@@ -153,13 +182,13 @@ func TestExtractTarGz(t *testing.T) {
 			},
 		}
 
-		for _, tt := range tests { //nolint:gocritic // let's waste some memory
+		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 
 				archivePath := tt.setup(t)
 
-				err := ExtractTarGz(archivePath, t.TempDir())
+				err := asdf.ExtractTarGz(archivePath, t.TempDir())
 				if tt.wantErr {
 					require.Error(t, err)
 
@@ -218,7 +247,7 @@ func TestExtractZip(t *testing.T) {
 			},
 		}
 
-		for _, tt := range tests { //nolint:gocritic // let's waste some memory
+		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 
@@ -227,7 +256,7 @@ func TestExtractZip(t *testing.T) {
 				tt.setup(t, archivePath)
 
 				destDir := filepath.Join(tempDir, "extracted")
-				require.NoError(t, ExtractZip(archivePath, destDir))
+				require.NoError(t, asdf.ExtractZip(archivePath, destDir))
 				tt.validate(t, destDir)
 			})
 		}
@@ -262,13 +291,13 @@ func TestExtractZip(t *testing.T) {
 			},
 		}
 
-		for _, tt := range tests { //nolint:gocritic // let's waste some memory
+		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 
 				archivePath := tt.setup(t)
 
-				err := ExtractZip(archivePath, t.TempDir())
+				err := asdf.ExtractZip(archivePath, t.TempDir())
 				if tt.wantErr {
 					require.Error(t, err)
 
@@ -317,7 +346,10 @@ func TestExtractGz(t *testing.T) {
 				t.Helper()
 
 				path := filepath.Join(t.TempDir(), "invalid.gz")
-				require.NoError(t, os.WriteFile(path, []byte("not a gz file"), CommonFilePermission))
+				require.NoError(
+					t,
+					os.WriteFile(path, []byte("not a gz file"), asdf.CommonFilePermission),
+				)
 
 				return path
 			},
@@ -332,7 +364,7 @@ func TestExtractGz(t *testing.T) {
 			name: "empty file",
 			setup: func(*testing.T) string {
 				path := filepath.Join(t.TempDir(), "empty.gz")
-				require.NoError(t, os.WriteFile(path, nil, CommonFilePermission))
+				require.NoError(t, os.WriteFile(path, nil, asdf.CommonFilePermission))
 
 				return path
 			},
@@ -340,14 +372,14 @@ func TestExtractGz(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			archivePath := tt.setup(t)
 			destPath := filepath.Join(t.TempDir(), "out")
 
-			err := ExtractGz(archivePath, destPath)
+			err := asdf.ExtractGz(archivePath, destPath)
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -390,12 +422,12 @@ func TestIsPathWithinDir(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			base := filepath.Join(t.TempDir(), "base")
-			require.Equal(t, tt.expected, isPathWithinDir(tt.path(base), base))
+			require.Equal(t, tt.expected, asdf.IsPathWithinDirForTests(tt.path(base), base))
 		})
 	}
 }
@@ -448,7 +480,7 @@ func TestLimitedArchiveWriter(t *testing.T) {
 			},
 		}
 
-		for _, tt := range tests { //nolint:gocritic // let's waste some memory
+		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 
@@ -457,12 +489,12 @@ func TestLimitedArchiveWriter(t *testing.T) {
 					total int64
 				)
 
-				writer := &limitedArchiveWriter{
-					w:        &buf,
-					total:    &total,
-					maxTotal: tt.maxTotal,
-					maxFile:  tt.maxFile,
-				}
+				writer := asdf.NewLimitedArchiveWriterForTests(
+					&buf,
+					&total,
+					tt.maxTotal,
+					tt.maxFile,
+				)
 
 				var err error
 				for _, s := range tt.write {
@@ -489,12 +521,7 @@ func TestLimitedArchiveWriter(t *testing.T) {
 	t.Run("nil total counter", func(t *testing.T) {
 		t.Parallel()
 
-		writer := &limitedArchiveWriter{
-			w:        &bytes.Buffer{},
-			total:    nil,
-			maxTotal: 100,
-			maxFile:  50,
-		}
+		writer := asdf.NewLimitedArchiveWriterForTests(&bytes.Buffer{}, nil, 100, 50)
 		_, err := writer.Write([]byte("test"))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "total counter is nil")
@@ -508,12 +535,12 @@ func TestLimitedArchiveWriter(t *testing.T) {
 			buf   bytes.Buffer
 		)
 
-		w1 := &limitedArchiveWriter{w: &buf, total: &total, maxTotal: 10, maxFile: 10}
+		w1 := asdf.NewLimitedArchiveWriterForTests(&buf, &total, 10, 10)
 		_, err := w1.Write([]byte("hello"))
 		require.NoError(t, err)
 		require.Equal(t, int64(5), total)
 
-		w2 := &limitedArchiveWriter{w: &buf, total: &total, maxTotal: 10, maxFile: 10}
+		w2 := asdf.NewLimitedArchiveWriterForTests(&buf, &total, 10, 10)
 
 		_, err = w2.Write([]byte("world!"))
 		require.Error(t, err)
@@ -529,7 +556,7 @@ func CreateTestTarGz(t *testing.T, path string, files map[string]string) {
 		for name, content := range files {
 			require.NoError(t, tw.WriteHeader(&tar.Header{
 				Name: name,
-				Mode: int64(TarFilePermission),
+				Mode: int64(asdf.TarFilePermission),
 				Size: int64(len(content)),
 			}))
 
@@ -544,14 +571,14 @@ func CreateTestTarGzWithDirs(t *testing.T, path string) {
 	createArchive(t, path, func(tw *tar.Writer) {
 		require.NoError(t, tw.WriteHeader(&tar.Header{
 			Name:     "mydir/",
-			Mode:     int64(CommonDirectoryPermission),
+			Mode:     int64(asdf.CommonDirectoryPermission),
 			Typeflag: tar.TypeDir,
 		}))
 
 		content := "file in dir"
 		require.NoError(t, tw.WriteHeader(&tar.Header{
 			Name: "mydir/file.txt",
-			Mode: int64(TarFilePermission),
+			Mode: int64(asdf.TarFilePermission),
 			Size: int64(len(content)),
 		}))
 
@@ -566,7 +593,7 @@ func CreateTestTarGzWithSymlink(t *testing.T, path string) {
 		content := "target content"
 		require.NoError(t, tw.WriteHeader(&tar.Header{
 			Name: "target.txt",
-			Mode: int64(TarFilePermission),
+			Mode: int64(asdf.TarFilePermission),
 			Size: int64(len(content)),
 		}))
 
@@ -575,7 +602,7 @@ func CreateTestTarGzWithSymlink(t *testing.T, path string) {
 
 		require.NoError(t, tw.WriteHeader(&tar.Header{
 			Name:     "link",
-			Mode:     int64(TarLinkPermission),
+			Mode:     int64(asdf.TarLinkPermission),
 			Typeflag: tar.TypeSymlink,
 			Linkname: "target.txt",
 		}))
@@ -588,7 +615,7 @@ func CreateTestTarGzWithTraversal(t *testing.T, path string) {
 		content := "malicious content"
 		require.NoError(t, tw.WriteHeader(&tar.Header{
 			Name: "../../../etc/malicious.txt",
-			Mode: int64(TarFilePermission),
+			Mode: int64(asdf.TarFilePermission),
 			Size: int64(len(content)),
 		}))
 
@@ -664,13 +691,13 @@ func CreateTestZipWithDirs(t *testing.T, path string) {
 	defer zipw.Close()
 
 	header := &zip.FileHeader{Name: "mydir/", Method: zip.Store}
-	header.SetMode(CommonDirectoryPermission | os.ModeDir)
+	header.SetMode(asdf.CommonDirectoryPermission | os.ModeDir)
 
 	_, err = zipw.CreateHeader(header)
 	require.NoError(t, err)
 
 	fileHeader := &zip.FileHeader{Name: "mydir/file.txt", Method: zip.Store}
-	fileHeader.SetMode(TarFilePermission)
+	fileHeader.SetMode(asdf.TarFilePermission)
 
 	f, err := zipw.CreateHeader(fileHeader)
 	require.NoError(t, err)
@@ -713,7 +740,7 @@ func CreateTestTarXz(t *testing.T, path string, files map[string]string) {
 	for name, content := range files {
 		require.NoError(t, tw.WriteHeader(&tar.Header{
 			Name: name,
-			Mode: int64(TarFilePermission),
+			Mode: int64(asdf.TarFilePermission),
 			Size: int64(len(content)),
 		}))
 

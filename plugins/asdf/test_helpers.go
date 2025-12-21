@@ -22,8 +22,41 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
+
+var testGlobalsMu sync.Mutex //nolint:gochecknoglobals // test-only global to serialize mutation of package-level vars
+
+var (
+	testGlobalsStateMu sync.Mutex              //nolint:gochecknoglobals // test-only global
+	testGlobalsHeldBy  = map[*testing.T]bool{} //nolint:gochecknoglobals // test-only global
+)
+
+func lockTestGlobals(t *testing.T) {
+	t.Helper()
+
+	testGlobalsStateMu.Lock()
+
+	if testGlobalsHeldBy[t] {
+		testGlobalsStateMu.Unlock()
+
+		return
+	}
+
+	testGlobalsHeldBy[t] = true
+
+	testGlobalsStateMu.Unlock()
+
+	testGlobalsMu.Lock()
+	t.Cleanup(func() {
+		testGlobalsStateMu.Lock()
+		delete(testGlobalsHeldBy, t)
+		testGlobalsStateMu.Unlock()
+
+		testGlobalsMu.Unlock()
+	})
+}
 
 // TestHelperProcess is used to mock exec.CommandContext calls.
 func TestHelperProcess(_ *testing.T) {
@@ -35,6 +68,7 @@ func TestHelperProcess(_ *testing.T) {
 	for len(args) > 0 {
 		if args[0] == "--" {
 			args = args[1:]
+
 			break
 		}
 
@@ -74,9 +108,11 @@ func TestHelperProcess(_ *testing.T) {
 // mockExec mocks exec.CommandContext to run TestHelperProcess.
 func mockExec(t *testing.T, lookPath func(string) (string, error)) {
 	t.Helper()
+	lockTestGlobals(t)
 
 	origLookPath := execLookPath
 	origCommandContext := execCommandContext
+
 	t.Cleanup(func() {
 		execLookPath = origLookPath
 		execCommandContext = origCommandContext
@@ -106,9 +142,11 @@ func mockExec(t *testing.T, lookPath func(string) (string, error)) {
 // mockOS mocks os.Getwd and os.UserHomeDir.
 func mockOS(t *testing.T, wd, home string) {
 	t.Helper()
+	lockTestGlobals(t)
 
 	origGetwd := osGetwd
 	origUserHomeDir := osUserHomeDir
+
 	t.Cleanup(func() {
 		osGetwd = origGetwd
 		osUserHomeDir = origUserHomeDir

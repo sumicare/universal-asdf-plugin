@@ -246,6 +246,11 @@ func (*GolangPlugin) Download(ctx context.Context, version, downloadPath string)
 	downloadURL := fmt.Sprintf("%s/go%s.%s-%s.tar.gz", goDownloadURL, version, platform, arch)
 	archivePath := filepath.Join(downloadPath, "archive.tar.gz")
 
+	// Ensure download directory exists
+	if err := asdf.EnsureDir(downloadPath); err != nil {
+		return fmt.Errorf("creating download directory: %w", err)
+	}
+
 	asdf.Msgf("Downloading Go %s from %s", version, downloadURL)
 
 	if err := asdf.DownloadFile(ctx, downloadURL, archivePath); err != nil {
@@ -282,26 +287,33 @@ func (*GolangPlugin) Download(ctx context.Context, version, downloadPath string)
 }
 
 // Install installs Go from the downloaded archive.
-func (plugin *GolangPlugin) Install(ctx context.Context, version, downloadPath, installPath string) error {
+func (plugin *GolangPlugin) Install(
+	ctx context.Context,
+	version, downloadPath, installPath string,
+) error {
 	archivePath := filepath.Join(downloadPath, "archive.tar.gz")
 
 	if _, err := os.Stat(archivePath); os.IsNotExist(err) {
-		if err := plugin.Download(ctx, version, downloadPath); err != nil {
+		err := plugin.Download(ctx, version, downloadPath)
+		if err != nil {
 			return err
 		}
 	}
 
 	asdf.Msgf("Installing Go %s to %s", version, installPath)
 
-	if err := asdf.EnsureDir(installPath); err != nil {
+	err := asdf.EnsureDir(installPath)
+	if err != nil {
 		return fmt.Errorf("creating install directory: %w", err)
 	}
 
-	if err := asdf.ExtractTarGz(archivePath, installPath); err != nil {
+	err = asdf.ExtractTarGz(archivePath, installPath)
+	if err != nil {
 		return fmt.Errorf("extracting archive: %w", err)
 	}
 
-	if err := plugin.installDefaultPackages(ctx, version, installPath); err != nil {
+	err = plugin.installDefaultPackages(ctx, version, installPath)
+	if err != nil {
 		asdf.Errf("Warning: failed to install default packages: %v", err)
 	}
 
@@ -311,7 +323,10 @@ func (plugin *GolangPlugin) Install(ctx context.Context, version, downloadPath, 
 }
 
 // installDefaultPackages installs packages from ~/.default-golang-pkgs.
-func (*GolangPlugin) installDefaultPackages(ctx context.Context, version, installPath string) error {
+func (*GolangPlugin) installDefaultPackages(
+	ctx context.Context,
+	version, installPath string,
+) error {
 	defaultPkgsFile := os.Getenv("ASDF_GOLANG_DEFAULT_PACKAGES_FILE")
 	if defaultPkgsFile == "" {
 		homeDir, err := os.UserHomeDir()
@@ -355,6 +370,7 @@ func (*GolangPlugin) installDefaultPackages(ctx context.Context, version, instal
 		asdf.Msgf("Installing %s...", line)
 
 		var cmd *exec.Cmd
+
 		if useInstall {
 			pkg := line
 			if !strings.Contains(pkg, "@") {
@@ -373,7 +389,8 @@ func (*GolangPlugin) installDefaultPackages(ctx context.Context, version, instal
 			"PATH="+filepath.Join(goRoot, "bin")+":"+os.Getenv("PATH"),
 		)
 
-		if err := cmd.Run(); err != nil {
+		err := cmd.Run()
+		if err != nil {
 			asdf.Errf("Failed to install %s: %v", line, err)
 		} else {
 			asdf.Msgf("Successfully installed %s", line)
@@ -386,6 +403,7 @@ func (*GolangPlugin) installDefaultPackages(ctx context.Context, version, instal
 // parseGoTags extracts version numbers from GitHub tag names.
 func parseGoTags(tags []string) []string {
 	var versions []string
+
 	for _, tag := range tags {
 		if after, ok := strings.CutPrefix(tag, "go"); ok {
 			versions = append(versions, after)
@@ -432,14 +450,20 @@ func sortGoVersions(versions []string) {
 	asdf.SortVersions(versions)
 }
 
-// EnsureGoToolchainEntries ensures that a golang entry exists in .tool-versions
-// via the generic toolchains helper.
+// EnsureGoToolchainEntries ensures that a golang entry exists in .tool-versions.
+// It resolves the version from the project's .tool-versions file and ensures the
+// entry is present, installing it if asdf is available.
 func EnsureGoToolchainEntries(ctx context.Context) error {
-	return asdf.EnsureToolchains(ctx, "golang")
+	toolVersionsPath, err := asdf.ResolveToolVersionsPath()
+	if err != nil {
+		return err
+	}
+
+	return asdf.EnsureToolVersionsFile(ctx, toolVersionsPath, "golang")
 }
 
 // InstallGoToolchain installs the Go toolchain into an asdf-style tree under
 // ASDF_DATA_DIR (or $HOME/.asdf if unset) using the Go plugin implementation.
 func InstallGoToolchain(ctx context.Context) error {
-	return asdf.InstallToolchain(ctx, "golang", NewGolangPlugin())
+	return asdf.InstallWithDependencies(ctx, "golang", NewGolangPlugin())
 }

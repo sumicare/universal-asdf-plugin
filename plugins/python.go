@@ -82,7 +82,13 @@ func NewPythonPlugin() asdf.Plugin {
 				}
 			}
 
-			pythonBuildPath := filepath.Join(plugin.pyenvDir, "plugins", "python-build", "bin", "python-build")
+			pythonBuildPath := filepath.Join(
+				plugin.pyenvDir,
+				"plugins",
+				"python-build",
+				"bin",
+				"python-build",
+			)
 
 			asdf.Msgf("Installing Python %s to %s", version, installPath)
 
@@ -91,6 +97,7 @@ func NewPythonPlugin() asdf.Plugin {
 			patchDir := os.Getenv("ASDF_PYTHON_PATCHES_DIRECTORY")
 
 			var cmd *exec.Cmd
+
 			if patchURL != "" {
 				asdf.Msgf("Applying patch from %s", patchURL)
 
@@ -125,7 +132,8 @@ func NewPythonPlugin() asdf.Plugin {
 			cmd.Stderr = os.Stderr
 			cmd.Env = os.Environ()
 
-			if err := cmd.Run(); err != nil {
+			err := cmd.Run()
+			if err != nil {
 				return fmt.Errorf("running python-build: %w", err)
 			}
 
@@ -152,7 +160,9 @@ func NewPythonPlugin() asdf.Plugin {
 				}
 
 				filePath := filepath.Join(binDir, entry.Name())
-				if err := os.Chmod(filePath, asdf.CommonExecutablePermission); err != nil {
+
+				err := os.Chmod(filePath, asdf.CommonExecutablePermission)
+				if err != nil {
 					asdf.Msgf("Warning: Failed to chmod %s: %v", filePath, err)
 				}
 			}
@@ -222,7 +232,13 @@ func (plugin *PythonPlugin) ListAll(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
-	pythonBuildPath := filepath.Join(plugin.pyenvDir, "plugins", "python-build", "bin", "python-build")
+	pythonBuildPath := filepath.Join(
+		plugin.pyenvDir,
+		"plugins",
+		"python-build",
+		"bin",
+		"python-build",
+	)
 	cmd := exec.CommandContext(ctx, pythonBuildPath, "--definitions")
 
 	output, err := cmd.Output()
@@ -320,7 +336,8 @@ func (plugin *PythonPlugin) Download(ctx context.Context, _, _ string) error {
 
 // Install installs the specified Python version using python-build.
 func (plugin *PythonPlugin) Install(ctx context.Context, version, _, installPath string) error {
-	if err := plugin.SourceBuildPlugin.Install(ctx, version, "", installPath); err != nil {
+	err := plugin.SourceBuildPlugin.Install(ctx, version, "", installPath)
+	if err != nil {
 		return err
 	}
 
@@ -371,7 +388,8 @@ func installDefaultPackages(ctx context.Context, installPath string) error {
 		pipCmd.Stdout = os.Stderr
 		pipCmd.Stderr = os.Stderr
 
-		if err := pipCmd.Run(); err != nil {
+		err := pipCmd.Run()
+		if err != nil {
 			asdf.Msgf("Warning: Failed to install %s: %v", pkg, err)
 		}
 	}

@@ -67,7 +67,7 @@ type (
 
 	// gcsResponse represents the GCS API response.
 	gcsResponse struct {
-		NextPageToken string      `json:"nextPageToken"`
+		NextPageToken string      `json:"next_page_token"`
 		Items         []gcsObject `json:"items"`
 	}
 
@@ -76,6 +76,44 @@ type (
 		Name string `json:"name"`
 	}
 )
+
+func (resp *gcsResponse) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	if rawItems, ok := raw["items"]; ok {
+		var items []gcsObject
+		if err := json.Unmarshal(rawItems, &items); err != nil {
+			return err
+		}
+
+		resp.Items = items
+	}
+
+	if rawToken, ok := raw["next_page_token"]; ok {
+		var token string
+		if err := json.Unmarshal(rawToken, &token); err != nil {
+			return err
+		}
+
+		resp.NextPageToken = token
+
+		return nil
+	}
+
+	if rawToken, ok := raw["nextPageToken"]; ok {
+		var token string
+		if err := json.Unmarshal(rawToken, &token); err != nil {
+			return err
+		}
+
+		resp.NextPageToken = token
+	}
+
+	return nil
+}
 
 // NewGcloudPlugin creates a new gcloud plugin instance.
 func NewGcloudPlugin() asdf.Plugin {
@@ -87,6 +125,11 @@ func NewGcloudPlugin() asdf.Plugin {
 // Name returns the plugin name.
 func (*GcloudPlugin) Name() string {
 	return "gcloud"
+}
+
+// Dependencies returns the list of plugins that must be installed before gcloud.
+func (*GcloudPlugin) Dependencies() []string {
+	return []string{"python"}
 }
 
 // ListBinPaths returns the binary paths for gcloud installations.
@@ -137,8 +180,13 @@ func (plugin *GcloudPlugin) ListAll(ctx context.Context) ([]string, error) {
 	versionRegex := regexp.MustCompile(`google-cloud-sdk-(\d+\.\d+\.\d+)-linux-x86_64\.tar\.gz$`)
 
 	pageToken := ""
+
 	for {
-		url := fmt.Sprintf("%s?prefix=%s&fields=items(name),nextPageToken", plugin.apiURL, gcsObjectPrefix)
+		url := fmt.Sprintf(
+			"%s?prefix=%s&fields=items(name),nextPageToken",
+			plugin.apiURL,
+			gcsObjectPrefix,
+		)
 		if pageToken != "" {
 			url += "&pageToken=" + pageToken
 		}
@@ -156,6 +204,7 @@ func (plugin *GcloudPlugin) ListAll(ctx context.Context) ([]string, error) {
 		var gcsResp gcsResponse
 		if err := json.NewDecoder(resp.Body).Decode(&gcsResp); err != nil {
 			resp.Body.Close()
+
 			return nil, fmt.Errorf("decoding response: %w", err)
 		}
 
@@ -202,12 +251,19 @@ func (plugin *GcloudPlugin) LatestStable(ctx context.Context, query string) (str
 		return "", err
 	}
 
-	return asdf.LatestStableWithQuery(ctx, query, versions, errGcloudNoVersionsFound, errGcloudNoVersionsMatching)
+	return asdf.LatestStableWithQuery(
+		ctx,
+		query,
+		versions,
+		errGcloudNoVersionsFound,
+		errGcloudNoVersionsMatching,
+	)
 }
 
 // getObjectName returns the GCS object name for the specified version.
 func (*GcloudPlugin) getObjectName(version string) (string, error) {
 	var platform string
+
 	switch runtime.GOOS {
 	case "linux":
 		switch runtime.GOARCH {
@@ -246,6 +302,7 @@ func (plugin *GcloudPlugin) Download(ctx context.Context, version, downloadPath 
 	filePath := filepath.Join(downloadPath, objectName)
 	if info, err := os.Stat(filePath); err == nil && info.Size() > 1024 {
 		asdf.Msgf("Using cached download for gcloud %s", version)
+
 		return nil
 	}
 
@@ -267,7 +324,11 @@ func (plugin *GcloudPlugin) Download(ctx context.Context, version, downloadPath 
 		return fmt.Errorf("%w with status: %d", errGcloudDownloadFailed, resp.StatusCode)
 	}
 
-	outFile, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, asdf.CommonFilePermission)
+	outFile, err := os.OpenFile(
+		filePath,
+		os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
+		asdf.CommonFilePermission,
+	)
 	if err != nil {
 		return fmt.Errorf("creating file: %w", err)
 	}
@@ -281,8 +342,11 @@ func (plugin *GcloudPlugin) Download(ctx context.Context, version, downloadPath 
 }
 
 // Install installs gcloud from the downloaded archive.
-func (plugin *GcloudPlugin) Install(ctx context.Context, version, downloadPath, installPath string) error {
-	if err := asdf.EnsureToolchains(ctx, "python"); err != nil {
+func (plugin *GcloudPlugin) Install(
+	ctx context.Context,
+	version, downloadPath, installPath string,
+) error {
+	if err := plugin.Download(ctx, version, downloadPath); err != nil {
 		return err
 	}
 

@@ -160,9 +160,12 @@ func (plugin *ZigPlugin) ListAll(ctx context.Context) ([]string, error) {
 	index := make(map[string]map[string]ZigRelease)
 	for version, platforms := range rawIndex {
 		index[version] = make(map[string]ZigRelease)
+
 		for platform, data := range platforms {
 			var release ZigRelease
-			if err := json.Unmarshal(data, &release); err != nil {
+
+			err := json.Unmarshal(data, &release)
+			if err != nil {
 				continue
 			}
 
@@ -174,6 +177,7 @@ func (plugin *ZigPlugin) ListAll(ctx context.Context) ([]string, error) {
 
 	// Extract versions
 	var versions []string
+
 	for version := range index {
 		if version != "master" {
 			versions = append(versions, version)
@@ -204,6 +208,7 @@ func (plugin *ZigPlugin) LatestStable(ctx context.Context, query string) (string
 
 	// Filter by query prefix
 	var filtered []string
+
 	for _, v := range versions {
 		if len(v) >= len(query) && v[:len(query)] == query {
 			filtered = append(filtered, v)
@@ -222,6 +227,7 @@ func (plugin *ZigPlugin) Download(ctx context.Context, version, downloadPath str
 	destPath := filepath.Join(downloadPath, "zig.tar.xz")
 	if info, err := os.Stat(destPath); err == nil && info.Size() > 1024 {
 		asdf.Msgf("Using cached download for zig %s", version)
+
 		return nil
 	}
 
@@ -249,9 +255,12 @@ func (plugin *ZigPlugin) Download(ctx context.Context, version, downloadPath str
 	index := make(map[string]map[string]ZigRelease)
 	for ver, platforms := range rawIndex {
 		index[ver] = make(map[string]ZigRelease)
+
 		for platform, data := range platforms {
 			var release ZigRelease
-			if err := json.Unmarshal(data, &release); err != nil {
+
+			err := json.Unmarshal(data, &release)
+			if err != nil {
 				continue
 			}
 
@@ -281,7 +290,7 @@ func (plugin *ZigPlugin) Download(ctx context.Context, version, downloadPath str
 		return fmt.Errorf("%w: %s", errZigNoReleaseForPlatform, platformKey)
 	}
 
-	fmt.Printf("Downloading Zig %s from %s\n", version, release.Tarball)
+	_, _ = fmt.Fprintf(os.Stdout, "Downloading Zig %s from %s\n", version, release.Tarball)
 
 	if err := asdf.DownloadFile(ctx, release.Tarball, destPath); err != nil {
 		return fmt.Errorf("downloading zig: %w", err)
@@ -291,13 +300,17 @@ func (plugin *ZigPlugin) Download(ctx context.Context, version, downloadPath str
 }
 
 // Install installs Zig from the downloaded tarball.
-func (plugin *ZigPlugin) Install(ctx context.Context, version, downloadPath, installPath string) error {
+func (plugin *ZigPlugin) Install(
+	ctx context.Context,
+	version, downloadPath, installPath string,
+) error {
 	tarballPath := filepath.Join(downloadPath, "zig.tar.xz")
 	if _, err := os.Stat(tarballPath); err != nil {
 		return err
 	}
 
-	if err := plugin.SourceBuildPlugin.Install(ctx, version, downloadPath, installPath); err != nil {
+	err := plugin.SourceBuildPlugin.Install(ctx, version, downloadPath, installPath)
+	if err != nil {
 		return err
 	}
 
@@ -305,7 +318,7 @@ func (plugin *ZigPlugin) Install(ctx context.Context, version, downloadPath, ins
 		_ = os.RemoveAll(filepath.Join(downloadPath, "src"))
 	}
 
-	fmt.Printf("Zig %s installed successfully\n", version)
+	_, _ = fmt.Fprintf(os.Stdout, "Zig %s installed successfully\n", version)
 
 	return nil
 }

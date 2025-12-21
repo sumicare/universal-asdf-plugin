@@ -173,28 +173,36 @@ func (*SourceBuildPlugin) Download(_ context.Context, _, _ string) error {
 }
 
 // Install downloads, extracts, and builds the specified version.
-func (plugin *SourceBuildPlugin) Install(ctx context.Context, version, downloadPath, installPath string) error {
+func (plugin *SourceBuildPlugin) Install(
+	ctx context.Context,
+	version, downloadPath, installPath string,
+) error {
 	if plugin.Config.BuildVersion == nil {
 		return errSourceBuildNoBuildStep
 	}
 
-	if err := EnsureDir(installPath); err != nil {
+	err := EnsureDir(installPath)
+	if err != nil {
 		return fmt.Errorf("creating install directory: %w", err)
 	}
 
 	createBinDir := plugin.Config.CreateBinDir == nil || *plugin.Config.CreateBinDir
 	if createBinDir && plugin.Config.BinDir != "" && plugin.Config.BinDir != "." {
 		binDir := filepath.Join(installPath, plugin.Config.BinDir)
-		if err := EnsureDir(binDir); err != nil {
+
+		err := EnsureDir(binDir)
+		if err != nil {
 			return fmt.Errorf("creating bin directory: %w", err)
 		}
 	}
 
 	if len(plugin.Config.ExpectedArtifacts) > 0 {
 		allPresent := true
+
 		for _, rel := range plugin.Config.ExpectedArtifacts {
 			if _, err := os.Stat(filepath.Join(installPath, rel)); err != nil {
 				allPresent = false
+
 				break
 			}
 		}
@@ -202,8 +210,11 @@ func (plugin *SourceBuildPlugin) Install(ctx context.Context, version, downloadP
 		if allPresent {
 			for _, rel := range plugin.Config.ExpectedArtifacts {
 				p := filepath.Join(installPath, rel)
-				if strings.HasPrefix(filepath.Clean(rel), plugin.Config.BinDir+string(os.PathSeparator)) {
-					_ = os.Chmod(p, CommonExecutablePermission) //nolint:errcheck // we're fine
+				if strings.HasPrefix(
+					filepath.Clean(rel),
+					plugin.Config.BinDir+string(os.PathSeparator),
+				) {
+					_ = os.Chmod(p, CommonExecutablePermission)
 				}
 			}
 
@@ -214,6 +225,7 @@ func (plugin *SourceBuildPlugin) Install(ctx context.Context, version, downloadP
 	workDir := downloadPath
 
 	cleanup := func() {}
+
 	if workDir == "" {
 		tmp, err := os.MkdirTemp("", "asdf-src-*")
 		if err != nil {
@@ -223,15 +235,21 @@ func (plugin *SourceBuildPlugin) Install(ctx context.Context, version, downloadP
 		workDir = tmp
 		cleanup = func() { _ = os.RemoveAll(tmp) }
 	}
+
 	defer cleanup()
 
-	if err := EnsureDir(workDir); err != nil {
+	err = EnsureDir(workDir)
+	if err != nil {
 		return fmt.Errorf("creating download directory: %w", err)
 	}
 
 	sourceDir := workDir
 
-	archiveName := renderSourceBuildTemplate(plugin.Config.ArchiveNameTemplate, plugin.Config, version)
+	archiveName := renderSourceBuildTemplate(
+		plugin.Config.ArchiveNameTemplate,
+		plugin.Config,
+		version,
+	)
 	archivePath := filepath.Join(workDir, archiveName)
 
 	minSize := int64(1024)
@@ -240,7 +258,8 @@ func (plugin *SourceBuildPlugin) Install(ctx context.Context, version, downloadP
 	}
 
 	if !plugin.Config.SkipDownload {
-		if err := plugin.downloadSource(ctx, version, workDir, archivePath, minSize); err != nil {
+		err := plugin.downloadSource(ctx, version, workDir, archivePath, minSize)
+		if err != nil {
 			return err
 		}
 	}
@@ -255,17 +274,20 @@ func (plugin *SourceBuildPlugin) Install(ctx context.Context, version, downloadP
 	}
 
 	if plugin.Config.PreBuildVersion != nil {
-		if err := plugin.Config.PreBuildVersion(ctx, version, sourceDir); err != nil {
+		err := plugin.Config.PreBuildVersion(ctx, version, sourceDir)
+		if err != nil {
 			return err
 		}
 	}
 
-	if err := plugin.Config.BuildVersion(ctx, version, sourceDir, installPath); err != nil {
+	err = plugin.Config.BuildVersion(ctx, version, sourceDir, installPath)
+	if err != nil {
 		return err
 	}
 
 	if plugin.Config.PostInstallVersion != nil {
-		if err := plugin.Config.PostInstallVersion(ctx, version, installPath); err != nil {
+		err := plugin.Config.PostInstallVersion(ctx, version, installPath)
+		if err != nil {
 			return err
 		}
 	}
@@ -277,7 +299,7 @@ func (plugin *SourceBuildPlugin) Install(ctx context.Context, version, downloadP
 		}
 
 		if strings.HasPrefix(filepath.Clean(rel), plugin.Config.BinDir+string(os.PathSeparator)) {
-			_ = os.Chmod(p, CommonExecutablePermission) //nolint:errcheck // we're fine
+			_ = os.Chmod(p, CommonExecutablePermission)
 		}
 	}
 
@@ -315,12 +337,17 @@ func (plugin *SourceBuildPlugin) Help() PluginHelp {
 }
 
 // downloadSource downloads the source archive if it doesn't exist or is too small.
-func (plugin *SourceBuildPlugin) downloadSource(ctx context.Context, version, workDir, archivePath string, minSize int64) error {
+func (plugin *SourceBuildPlugin) downloadSource(
+	ctx context.Context,
+	version, workDir, archivePath string,
+	minSize int64,
+) error {
 	if info, err := os.Stat(archivePath); err == nil && info.Size() > minSize {
 		return nil
 	}
 
 	var srcURL string
+
 	if plugin.Config.SourceURLFunc != nil {
 		resolved, err := plugin.Config.SourceURLFunc(ctx, version)
 		if err != nil {
@@ -335,6 +362,7 @@ func (plugin *SourceBuildPlugin) downloadSource(ctx context.Context, version, wo
 	Msgf("Downloading %s %s source from %s", plugin.Config.Name, version, srcURL)
 
 	downloadDest := archivePath
+
 	if parsed, parseErr := url.Parse(srcURL); parseErr == nil {
 		if base := filepath.Base(parsed.Path); base != "" && base != "." && base != "/" {
 			downloadDest = filepath.Join(workDir, base)
@@ -346,13 +374,16 @@ func (plugin *SourceBuildPlugin) downloadSource(ctx context.Context, version, wo
 		downloadFunc = DownloadFile
 	}
 
-	if err := downloadFunc(ctx, srcURL, downloadDest); err != nil {
+	err := downloadFunc(ctx, srcURL, downloadDest)
+	if err != nil {
 		return fmt.Errorf("downloading source: %w", err)
 	}
 
 	if downloadDest != archivePath {
 		_ = os.RemoveAll(archivePath)
-		if err := os.Rename(downloadDest, archivePath); err != nil {
+
+		err := os.Rename(downloadDest, archivePath)
+		if err != nil {
 			return fmt.Errorf("finalizing downloaded archive: %w", err)
 		}
 	}
@@ -361,7 +392,9 @@ func (plugin *SourceBuildPlugin) downloadSource(ctx context.Context, version, wo
 }
 
 // extractSource extracts the source archive and returns the path to the extracted directory.
-func (plugin *SourceBuildPlugin) extractSource(version, workDir, archivePath string) (string, error) {
+func (plugin *SourceBuildPlugin) extractSource(
+	version, workDir, archivePath string,
+) (string, error) {
 	if _, err := os.Stat(archivePath); err != nil {
 		return "", fmt.Errorf("%w: %s", errSourceBuildArchiveMissing, archivePath)
 	}
@@ -369,31 +402,44 @@ func (plugin *SourceBuildPlugin) extractSource(version, workDir, archivePath str
 	srcRoot := filepath.Join(workDir, "src")
 
 	_ = os.RemoveAll(srcRoot)
-	if err := EnsureDir(srcRoot); err != nil {
+
+	err := EnsureDir(srcRoot)
+	if err != nil {
 		return "", fmt.Errorf("creating source directory: %w", err)
 	}
 
 	switch plugin.Config.ArchiveType {
 	case "tar.gz":
-		if err := ExtractTarGz(archivePath, srcRoot); err != nil {
+		err := ExtractTarGz(archivePath, srcRoot)
+		if err != nil {
 			return "", fmt.Errorf("extracting tar.gz: %w", err)
 		}
 
 	case "tar.xz":
-		if err := ExtractTarXz(archivePath, srcRoot); err != nil {
+		err := ExtractTarXz(archivePath, srcRoot)
+		if err != nil {
 			return "", fmt.Errorf("extracting tar.xz: %w", err)
 		}
 
 	case "zip":
-		if err := ExtractZip(archivePath, srcRoot); err != nil {
+		err := ExtractZip(archivePath, srcRoot)
+		if err != nil {
 			return "", fmt.Errorf("extracting zip: %w", err)
 		}
 
 	default:
-		return "", fmt.Errorf("%w: %s", errSourceBuildUnsupportedArchiveType, plugin.Config.ArchiveType)
+		return "", fmt.Errorf(
+			"%w: %s",
+			errSourceBuildUnsupportedArchiveType,
+			plugin.Config.ArchiveType,
+		)
 	}
 
-	extractedDir := renderSourceBuildTemplate(plugin.Config.ExtractedDirNameTemplate, plugin.Config, version)
+	extractedDir := renderSourceBuildTemplate(
+		plugin.Config.ExtractedDirNameTemplate,
+		plugin.Config,
+		version,
+	)
 
 	candidate := filepath.Join(srcRoot, extractedDir)
 	if plugin.Config.AutoDetectExtractedDir {
@@ -405,6 +451,7 @@ func (plugin *SourceBuildPlugin) extractSource(version, workDir, archivePath str
 		for _, entry := range entries {
 			if entry.IsDir() {
 				candidate = filepath.Join(srcRoot, entry.Name())
+
 				break
 			}
 		}
@@ -418,7 +465,11 @@ func (plugin *SourceBuildPlugin) extractSource(version, workDir, archivePath str
 }
 
 // renderSourceBuildTemplate substitutes template placeholders with config values.
-func renderSourceBuildTemplate(template string, cfg *SourceBuildPluginConfig, version string) string {
+func renderSourceBuildTemplate(
+	template string,
+	cfg *SourceBuildPluginConfig,
+	version string,
+) string {
 	out := template
 
 	out = strings.ReplaceAll(out, "{{.RepoOwner}}", cfg.RepoOwner)

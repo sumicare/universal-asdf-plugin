@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package asdf
+package asdf_test
 
 import (
 	"errors"
@@ -24,25 +24,24 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/sumicare/universal-asdf-plugin/plugins/asdf"
 )
 
 func TestGetPlatform(t *testing.T) {
 	t.Parallel()
 
-	platform, err := GetPlatform()
+	platform, err := asdf.GetPlatform()
 	require.NoError(t, err)
 	require.Contains(t, []string{"linux", "darwin", "windows", "freebsd"}, platform)
 }
 
 func TestGetArch(t *testing.T) {
-	// Not parallel because it sets environment variables
-	t.Run("returns the current architecture", func(t *testing.T) {
-		arch, err := GetArch()
-		require.NoError(t, err)
-		require.NotEmpty(t, arch)
-	})
+	arch, err := asdf.GetArch()
+	require.NoError(t, err)
+	require.NotEmpty(t, arch)
 
 	tests := []struct {
 		name     string
@@ -64,36 +63,32 @@ func TestGetArch(t *testing.T) {
 		{"riscv64", "riscv64", "riscv64", false},
 	}
 
-	for _, tt := range tests { //nolint:gocritic // let's waste some memory
-		t.Run("maps "+tt.name, func(t *testing.T) {
-			t.Setenv("ASDF_OVERWRITE_ARCH", tt.env)
+	for _, tt := range tests {
+		t.Setenv("ASDF_OVERWRITE_ARCH", tt.env)
 
-			arch, err := GetArch()
-			if tt.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				require.Equal(t, tt.expected, arch)
-			}
-		})
+		arch, err := asdf.GetArch()
+		if tt.wantErr {
+			require.Error(t, err)
+		} else {
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, arch)
+		}
 	}
 
-	t.Run("returns error for unsupported arch", func(t *testing.T) {
-		if runtime.GOARCH == "unsupported" {
-			t.Skip("cannot test unsupported arch on this platform")
-		}
+	if runtime.GOARCH == "unsupported" {
+		t.Skip("cannot test unsupported arch on this platform")
+	}
 
-		t.Setenv("ASDF_OVERWRITE_ARCH", "unsupported")
+	t.Setenv("ASDF_OVERWRITE_ARCH", "unsupported")
 
-		_, err := GetArch()
-		require.Error(t, err)
-	})
+	_, err = asdf.GetArch()
+	require.Error(t, err)
 }
 
 func TestHTTPClient(t *testing.T) {
 	t.Parallel()
 
-	client := HTTPClient()
+	client := asdf.HTTPClient()
 	require.NotNil(t, client)
 	require.NotZero(t, client.Timeout)
 }
@@ -111,7 +106,10 @@ func TestVerifySHA256(t *testing.T) {
 			name: "verifies correct checksum",
 			setup: func(*testing.T) (string, string) {
 				path := filepath.Join(t.TempDir(), "test.txt")
-				require.NoError(t, os.WriteFile(path, []byte("test content"), CommonFilePermission))
+				require.NoError(
+					t,
+					os.WriteFile(path, []byte("test content"), asdf.CommonFilePermission),
+				)
 
 				return path, "6ae8a75555209fd6c44157c0aed8016e763ff435a19cf186f76863140143ff72"
 			},
@@ -121,7 +119,10 @@ func TestVerifySHA256(t *testing.T) {
 			name: "returns error for incorrect checksum",
 			setup: func(*testing.T) (string, string) {
 				path := filepath.Join(t.TempDir(), "test.txt")
-				require.NoError(t, os.WriteFile(path, []byte("test content"), CommonFilePermission))
+				require.NoError(
+					t,
+					os.WriteFile(path, []byte("test content"), asdf.CommonFilePermission),
+				)
 
 				return path, "wronghash"
 			},
@@ -137,13 +138,13 @@ func TestVerifySHA256(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			path, hash := tt.setup(t)
 
-			err := VerifySHA256(path, hash)
+			err := asdf.VerifySHA256(path, hash)
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -164,7 +165,7 @@ func TestEnsureDir(t *testing.T) {
 		t.Parallel()
 
 		nestedPath := filepath.Join(t.TempDir(), "a", "b", "c")
-		require.NoError(t, EnsureDir(nestedPath))
+		require.NoError(t, asdf.EnsureDir(nestedPath))
 
 		info, err := os.Stat(nestedPath)
 		require.NoError(t, err)
@@ -173,7 +174,7 @@ func TestEnsureDir(t *testing.T) {
 
 	t.Run("succeeds if directory already exists", func(t *testing.T) {
 		t.Parallel()
-		require.NoError(t, EnsureDir(t.TempDir()))
+		require.NoError(t, asdf.EnsureDir(t.TempDir()))
 	})
 }
 
@@ -220,11 +221,11 @@ func TestFilterVersions(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			filtered := FilterVersions(tt.versions, tt.predicate)
+			filtered := asdf.FilterVersions(tt.versions, tt.predicate)
 			require.Equal(t, tt.expected, filtered)
 
 			if len(tt.expected) == 0 {
@@ -238,7 +239,7 @@ func TestSortVersions(t *testing.T) {
 	t.Parallel()
 
 	versions := []string{"2.0.0", "1.0.0", "1.1.0", "10.0.0"}
-	SortVersions(versions)
+	asdf.SortVersions(versions)
 	require.Equal(t, []string{"1.0.0", "1.1.0", "2.0.0", "10.0.0"}, versions)
 }
 
@@ -258,16 +259,16 @@ func TestCompareVersions(t *testing.T) {
 		{"1.21.0 > 1.20.0", "1.21.0", "1.20.0", 1},
 	}
 
-	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			result := CompareVersions(tt.a, tt.b)
+			result := asdf.CompareVersions(tt.a, tt.b)
 			switch {
 			case tt.expectedSign < 0:
-				require.Less(t, result, 0)
+				require.Negative(t, result)
 			case tt.expectedSign > 0:
-				require.Greater(t, result, 0)
+				require.Positive(t, result)
 			default:
 				require.Equal(t, 0, result)
 			}
@@ -288,11 +289,11 @@ func TestParseVersionParts(t *testing.T) {
 		{"handles rc versions", "1.21rc1", []int{1, 21, 1}},
 	}
 
-	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			parts := ParseVersionParts(tt.version)
+			parts := asdf.ParseVersionParts(tt.version)
 			require.Equal(t, tt.expected, parts)
 		})
 	}
@@ -313,7 +314,10 @@ func TestReadLegacyVersionFile(t *testing.T) {
 				t.Helper()
 
 				path := filepath.Join(t.TempDir(), ".version")
-				require.NoError(t, os.WriteFile(path, []byte("  1.21.0  \n"), CommonFilePermission))
+				require.NoError(
+					t,
+					os.WriteFile(path, []byte("  1.21.0  \n"), asdf.CommonFilePermission),
+				)
 
 				return path
 			},
@@ -326,13 +330,13 @@ func TestReadLegacyVersionFile(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			path := tt.setup(t)
 
-			version, err := ReadLegacyVersionFile(path)
+			version, err := asdf.ReadLegacyVersionFile(path)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -345,8 +349,9 @@ func TestReadLegacyVersionFile(t *testing.T) {
 
 func TestMsgAndErr(t *testing.T) {
 	t.Parallel()
-	require.NotPanics(t, func() { Msgf("test %s", "message") })
-	require.NotPanics(t, func() { Errf("test %s", "error") })
+	// These functions write to stderr, but we're just testing they don't panic
+	require.NotPanics(t, func() { asdf.Msgf("test %s", "message") })
+	require.NotPanics(t, func() { asdf.Errf("test %s", "error") })
 }
 
 func TestDownloadFile(t *testing.T) {
@@ -355,7 +360,9 @@ func TestDownloadFile(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/test.txt" {
 			_, err := w.Write([]byte("test content"))
-			require.NoError(t, err)
+			if err != nil {
+				t.Errorf("writing response: %v", err)
+			}
 		} else {
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -374,6 +381,7 @@ func TestDownloadFile(t *testing.T) {
 			url:  server.URL + "/test.txt",
 			setup: func(t *testing.T) string {
 				t.Helper()
+
 				return filepath.Join(t.TempDir(), "downloaded.txt")
 			},
 			checkFile: true,
@@ -383,6 +391,7 @@ func TestDownloadFile(t *testing.T) {
 			url:  server.URL + "/notfound",
 			setup: func(t *testing.T) string {
 				t.Helper()
+
 				return filepath.Join(t.TempDir(), "notfound.txt")
 			},
 			wantErr: true,
@@ -392,6 +401,7 @@ func TestDownloadFile(t *testing.T) {
 			url:  "http://invalid.invalid.invalid:99999/file",
 			setup: func(t *testing.T) string {
 				t.Helper()
+
 				return filepath.Join(t.TempDir(), "invalid.txt")
 			},
 			wantErr: true,
@@ -401,19 +411,20 @@ func TestDownloadFile(t *testing.T) {
 			url:  server.URL + "/test.txt",
 			setup: func(t *testing.T) string {
 				t.Helper()
+
 				return "/nonexistent/path/file.txt"
 			},
 			wantErr: true,
 		},
 	}
 
-	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			destPath := tt.setup(t)
 
-			err := DownloadFile(t.Context(), tt.url, destPath)
+			err := asdf.DownloadFile(t.Context(), tt.url, destPath)
 			if !tt.wantErr {
 				require.NoError(t, err)
 
@@ -434,10 +445,13 @@ func TestDownloadFile(t *testing.T) {
 func TestDownloadString(t *testing.T) {
 	t.Parallel()
 
+	// Create a test server for the valid cases
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/content" {
 			_, err := w.Write([]byte("string content"))
-			require.NoError(t, err)
+			if err != nil {
+				t.Errorf("writing response: %v", err)
+			}
 		} else {
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -445,10 +459,11 @@ func TestDownloadString(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	tests := []struct {
-		name     string
-		url      string
-		expected string
-		wantErr  bool
+		mockClient *http.Client
+		name       string
+		url        string
+		expected   string
+		wantErr    bool
 	}{
 		{
 			name:     "downloads string successfully",
@@ -464,14 +479,25 @@ func TestDownloadString(t *testing.T) {
 			name:    "returns error for invalid URL",
 			url:     "http://invalid.invalid.invalid:99999/content",
 			wantErr: true,
+			mockClient: &http.Client{
+				Timeout: 1 * time.Millisecond,
+			}, // Fast timeout for invalid URLs
 		},
 	}
 
-	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			content, err := DownloadString(t.Context(), tt.url)
+			// If we have a mock client, use it for this test
+			if tt.mockClient != nil {
+				originalClient := asdf.HTTPClient()
+
+				asdf.WithHTTPClient(tt.mockClient)
+				t.Cleanup(func() { asdf.WithHTTPClient(originalClient) })
+			}
+
+			content, err := asdf.DownloadString(t.Context(), tt.url)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -525,11 +551,11 @@ func TestLatestVersion(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			latest := LatestVersion(tt.versions, tt.pattern)
+			latest := asdf.LatestVersion(tt.versions, tt.pattern)
 			require.Equal(t, tt.expected, latest)
 		})
 	}
@@ -591,11 +617,17 @@ func TestLatestStableWithQuery(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests { //nolint:gocritic // let's waste some memory
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			latest, err := LatestStableWithQuery(t.Context(), tt.query, tt.versions, errTestNoVersions, errTestNoMatching)
+			latest, err := asdf.LatestStableWithQuery(
+				t.Context(),
+				tt.query,
+				tt.versions,
+				errTestNoVersions,
+				errTestNoMatching,
+			)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 

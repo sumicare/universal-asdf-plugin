@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package asdf
+package asdf_test
 
 import (
 	"os"
@@ -23,16 +23,15 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/sumicare/universal-asdf-plugin/plugins/asdf"
 )
 
 func TestNewPluginInstaller(t *testing.T) {
-	// Not using t.Parallel() because we need to use t.Setenv in subtests
 	t.Run("creates installer", func(t *testing.T) {
-		// Not using t.Parallel() because we have nested tests using t.Setenv
 		tests := []struct {
 			setupEnv   func(*testing.T)
 			execSetup  func(*testing.T) string
-			check      func(*testing.T, *PluginInstaller, string, string)
+			check      func(*testing.T, *asdf.PluginInstaller, string, string)
 			name       string
 			pluginsDir string
 			wantErr    bool
@@ -44,12 +43,19 @@ func TestNewPluginInstaller(t *testing.T) {
 
 					tmpDir := t.TempDir()
 					execPath := filepath.Join(tmpDir, "test-plugin")
-					require.NoError(t, os.WriteFile(execPath, []byte("#!/bin/bash\necho test"), CommonDirectoryPermission))
+					require.NoError(
+						t,
+						os.WriteFile(
+							execPath,
+							[]byte("#!/bin/bash\necho test"),
+							asdf.CommonDirectoryPermission,
+						),
+					)
 
 					return execPath
 				},
 				pluginsDir: "plugins",
-				check: func(t *testing.T, i *PluginInstaller, execPath, _ string) {
+				check: func(t *testing.T, i *asdf.PluginInstaller, execPath, _ string) {
 					t.Helper()
 
 					require.Equal(t, execPath, i.ExecPath)
@@ -68,12 +74,19 @@ func TestNewPluginInstaller(t *testing.T) {
 
 					tmpDir := t.TempDir()
 					execPath := filepath.Join(tmpDir, "test-plugin")
-					require.NoError(t, os.WriteFile(execPath, []byte("#!/bin/bash\necho test"), CommonDirectoryPermission))
+					require.NoError(
+						t,
+						os.WriteFile(
+							execPath,
+							[]byte("#!/bin/bash\necho test"),
+							asdf.CommonDirectoryPermission,
+						),
+					)
 
 					return execPath
 				},
 				pluginsDir: "",
-				check: func(t *testing.T, i *PluginInstaller, _, _ string) {
+				check: func(t *testing.T, i *asdf.PluginInstaller, _, _ string) {
 					t.Helper()
 
 					require.Equal(t, "/tmp/asdf/plugins", i.PluginsDir)
@@ -91,16 +104,15 @@ func TestNewPluginInstaller(t *testing.T) {
 			},
 		}
 
-		for _, tt := range tests { //nolint:gocritic // let's waste some memory
-			t.Run(tt.name, func(t *testing.T) {
-				// Don't run any of these subtests in parallel as top test can't be parallel with t.Setenv
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) { //nolint:paralleltest // does not work with SetEnv
 				if tt.setupEnv != nil {
 					tt.setupEnv(t)
 				}
 
 				execPath := tt.execSetup(t)
 
-				installer, err := NewPluginInstaller(execPath, tt.pluginsDir)
+				installer, err := asdf.NewPluginInstaller(execPath, tt.pluginsDir)
 				if tt.wantErr {
 					require.Error(t, err)
 				} else {
@@ -113,10 +125,9 @@ func TestNewPluginInstaller(t *testing.T) {
 }
 
 func TestGetPluginsDir(t *testing.T) {
-	// Not parallel due to environment variables
 	t.Run("uses ASDF_DATA_DIR when set", func(t *testing.T) {
 		t.Setenv("ASDF_DATA_DIR", "/custom/asdf")
-		require.Equal(t, "/custom/asdf/plugins", GetPluginsDir())
+		require.Equal(t, "/custom/asdf/plugins", asdf.GetPluginsDir())
 	})
 
 	t.Run("falls back to ~/.asdf/plugins", func(t *testing.T) {
@@ -124,22 +135,29 @@ func TestGetPluginsDir(t *testing.T) {
 
 		home, err := os.UserHomeDir()
 		require.NoError(t, err)
-		require.Equal(t, filepath.Join(home, ".asdf", "plugins"), GetPluginsDir())
+		require.Equal(t, filepath.Join(home, ".asdf", "plugins"), asdf.GetPluginsDir())
 	})
 }
 
 func TestPluginInstallerInstall(t *testing.T) {
 	t.Parallel()
 
-	setupInstaller := func(t *testing.T) (*PluginInstaller, string) {
+	setupInstaller := func(t *testing.T) (*asdf.PluginInstaller, string) {
 		t.Helper()
 
 		tmpDir := t.TempDir()
 		pluginsDir := filepath.Join(tmpDir, "plugins")
 		execPath := filepath.Join(tmpDir, "test-plugin")
-		require.NoError(t, os.WriteFile(execPath, []byte("#!/bin/bash\necho test"), CommonDirectoryPermission))
+		require.NoError(
+			t,
+			os.WriteFile(
+				execPath,
+				[]byte("#!/bin/bash\necho test"),
+				asdf.CommonDirectoryPermission,
+			),
+		)
 
-		installer, err := NewPluginInstaller(execPath, pluginsDir)
+		installer, err := asdf.NewPluginInstaller(execPath, pluginsDir)
 		require.NoError(t, err)
 
 		return installer, pluginsDir
@@ -169,7 +187,12 @@ func TestPluginInstallerInstall(t *testing.T) {
 			scriptPath := filepath.Join(binDir, script)
 			info, err := os.Stat(scriptPath)
 			require.NoError(t, err, "script %s should exist", script)
-			require.NotZero(t, info.Mode().Perm()&ExecutablePermissionMask, "script %s should be executable", script)
+			require.NotZero(
+				t,
+				info.Mode().Perm()&asdf.ExecutablePermissionMask,
+				"script %s should be executable",
+				script,
+			)
 		}
 
 		// Check content of one script
@@ -187,9 +210,16 @@ func TestPluginInstallerInstall(t *testing.T) {
 
 		tmpDir := t.TempDir()
 		execPath := filepath.Join(tmpDir, "test-plugin")
-		require.NoError(t, os.WriteFile(execPath, []byte("#!/bin/bash\necho test"), CommonDirectoryPermission))
+		require.NoError(
+			t,
+			os.WriteFile(
+				execPath,
+				[]byte("#!/bin/bash\necho test"),
+				asdf.CommonDirectoryPermission,
+			),
+		)
 
-		installer, err := NewPluginInstaller(execPath, "/nonexistent/readonly/path")
+		installer, err := asdf.NewPluginInstaller(execPath, "/nonexistent/readonly/path")
 		require.NoError(t, err)
 		require.Error(t, installer.Install("golang"))
 	})
@@ -198,15 +228,22 @@ func TestPluginInstallerInstall(t *testing.T) {
 func TestPluginInstallerOtherMethods(t *testing.T) {
 	t.Parallel()
 
-	setup := func(t *testing.T) (*PluginInstaller, string) {
+	setup := func(t *testing.T) (*asdf.PluginInstaller, string) {
 		t.Helper()
 
 		tmpDir := t.TempDir()
 		pluginsDir := filepath.Join(tmpDir, "plugins")
 		execPath := filepath.Join(tmpDir, "test-plugin")
-		require.NoError(t, os.WriteFile(execPath, []byte("#!/bin/bash\necho test"), CommonDirectoryPermission))
+		require.NoError(
+			t,
+			os.WriteFile(
+				execPath,
+				[]byte("#!/bin/bash\necho test"),
+				asdf.CommonDirectoryPermission,
+			),
+		)
 
-		installer, err := NewPluginInstaller(execPath, pluginsDir)
+		installer, err := asdf.NewPluginInstaller(execPath, pluginsDir)
 		require.NoError(t, err)
 
 		return installer, pluginsDir
@@ -253,8 +290,15 @@ func TestPluginInstallerOtherMethods(t *testing.T) {
 
 		// False if bin is a file
 		pluginDir := filepath.Join(pluginsDir, "badplugin")
-		require.NoError(t, os.MkdirAll(pluginDir, CommonDirectoryPermission))
-		require.NoError(t, os.WriteFile(filepath.Join(pluginDir, "bin"), []byte("not a dir"), CommonFilePermission))
+		require.NoError(t, os.MkdirAll(pluginDir, asdf.CommonDirectoryPermission))
+		require.NoError(
+			t,
+			os.WriteFile(
+				filepath.Join(pluginDir, "bin"),
+				[]byte("not a dir"),
+				asdf.CommonFilePermission,
+			),
+		)
 		require.False(t, installer.IsInstalled("badplugin"))
 	})
 
@@ -271,7 +315,10 @@ func TestPluginInstallerOtherMethods(t *testing.T) {
 		require.NoError(t, installer.Install("nodejs"))
 
 		// Fake directory without bin
-		require.NoError(t, os.MkdirAll(filepath.Join(pluginsDir, "fake"), CommonDirectoryPermission))
+		require.NoError(
+			t,
+			os.MkdirAll(filepath.Join(pluginsDir, "fake"), asdf.CommonDirectoryPermission),
+		)
 
 		plugins, err = installer.GetInstalledPlugins()
 		require.NoError(t, err)
@@ -281,7 +328,7 @@ func TestPluginInstallerOtherMethods(t *testing.T) {
 	t.Run("AvailablePlugins", func(t *testing.T) {
 		t.Parallel()
 
-		plugins := AvailablePlugins()
+		plugins := asdf.AvailablePlugins()
 		require.Contains(t, plugins, "golang")
 		require.Contains(t, plugins, "python")
 		require.GreaterOrEqual(t, len(plugins), 40)
@@ -292,18 +339,114 @@ func TestPluginInstallerOtherMethods(t *testing.T) {
 
 		tmpDir := t.TempDir()
 		execPath := filepath.Join(tmpDir, "test-plugin")
-		require.NoError(t, os.WriteFile(execPath, []byte("#!/bin/bash\necho test"), CommonDirectoryPermission))
+		require.NoError(
+			t,
+			os.WriteFile(
+				execPath,
+				[]byte("#!/bin/bash\necho test"),
+				asdf.CommonDirectoryPermission,
+			),
+		)
 
-		installer, err := NewPluginInstaller(execPath, "/nonexistent/readonly/path")
+		installer, err := asdf.NewPluginInstaller(execPath, "/nonexistent/readonly/path")
 		require.NoError(t, err)
 
 		installed, err := installer.InstallAll()
 		require.Error(t, err)
 		require.Empty(t, installed)
 	})
+
+	t.Run("Uninstall", func(t *testing.T) {
+		t.Parallel()
+
+		t.Run("removes plugin directory", func(t *testing.T) {
+			t.Parallel()
+
+			tmpDir := t.TempDir()
+			execPath := filepath.Join(tmpDir, "test-plugin")
+			require.NoError(
+				t,
+				os.WriteFile(
+					execPath,
+					[]byte("#!/bin/bash\necho test"),
+					asdf.CommonDirectoryPermission,
+				),
+			)
+
+			pluginsDir := filepath.Join(tmpDir, "plugins")
+			require.NoError(
+				t,
+				os.MkdirAll(
+					filepath.Join(pluginsDir, "golang", "bin"),
+					asdf.CommonDirectoryPermission,
+				),
+			)
+
+			installer, err := asdf.NewPluginInstaller(execPath, pluginsDir)
+			require.NoError(t, err)
+
+			err = installer.Uninstall("golang")
+			require.NoError(t, err)
+
+			_, err = os.Stat(filepath.Join(pluginsDir, "golang"))
+			require.True(t, os.IsNotExist(err))
+		})
+
+		t.Run("returns no error for non-existent plugin", func(t *testing.T) {
+			t.Parallel()
+
+			tmpDir := t.TempDir()
+			execPath := filepath.Join(tmpDir, "test-plugin")
+			require.NoError(
+				t,
+				os.WriteFile(
+					execPath,
+					[]byte("#!/bin/bash\necho test"),
+					asdf.CommonDirectoryPermission,
+				),
+			)
+
+			installer, err := asdf.NewPluginInstaller(execPath, filepath.Join(tmpDir, "plugins"))
+			require.NoError(t, err)
+
+			err = installer.Uninstall("nonexistent")
+			require.NoError(t, err)
+		})
+	})
+
+	t.Run("GetInstalledPlugins error on read", func(t *testing.T) {
+		t.Parallel()
+
+		tmpDir := t.TempDir()
+		execPath := filepath.Join(tmpDir, "test-plugin")
+		require.NoError(
+			t,
+			os.WriteFile(
+				execPath,
+				[]byte("#!/bin/bash\necho test"),
+				asdf.CommonDirectoryPermission,
+			),
+		)
+
+		// Create a file where directory is expected
+		pluginsFile := filepath.Join(tmpDir, "plugins")
+		require.NoError(
+			t,
+			os.WriteFile(pluginsFile, []byte("not a dir"), asdf.CommonFilePermission),
+		)
+
+		installer, err := asdf.NewPluginInstaller(execPath, pluginsFile)
+		require.NoError(t, err)
+
+		_, err = installer.GetInstalledPlugins()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "reading plugins directory")
+	})
 }
 
 func TestPluginInstallerWithLiveAsdf(t *testing.T) {
+	t.Parallel()
+
 	if _, err := exec.LookPath("asdf"); err != nil {
 		t.Skip("asdf not available in PATH")
 	}
@@ -311,16 +454,11 @@ func TestPluginInstallerWithLiveAsdf(t *testing.T) {
 	_, thisFile, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 
-	tmpDir := filepath.Join(filepath.Dir(thisFile), ".tmp", "live-asdf-test")
-
-	os.RemoveAll(tmpDir)
-	t.Cleanup(func() { os.RemoveAll(tmpDir) })
-
-	require.NoError(t, os.MkdirAll(tmpDir, CommonDirectoryPermission))
+	tmpDir := t.TempDir()
 
 	pluginsDir := filepath.Join(tmpDir, "plugins")
 	buildDir := filepath.Join(tmpDir, "build")
-	require.NoError(t, os.MkdirAll(buildDir, CommonDirectoryPermission))
+	require.NoError(t, os.MkdirAll(buildDir, asdf.CommonDirectoryPermission))
 
 	projectRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
 	execPath := filepath.Join(buildDir, "universal-asdf-plugin")
@@ -332,10 +470,12 @@ func TestPluginInstallerWithLiveAsdf(t *testing.T) {
 	output, err := buildCmd.CombinedOutput()
 	require.NoError(t, err, "build failed: %s", string(output))
 
-	installer, err := NewPluginInstaller(execPath, pluginsDir)
+	installer, err := asdf.NewPluginInstaller(execPath, pluginsDir)
 	require.NoError(t, err)
 
 	t.Run("installs plugin that asdf can recognize", func(t *testing.T) {
+		t.Parallel()
+
 		err := installer.Install("golang")
 		require.NoError(t, err)
 
@@ -349,10 +489,18 @@ func TestPluginInstallerWithLiveAsdf(t *testing.T) {
 	})
 
 	t.Run("installed plugin can list versions via asdf", func(t *testing.T) {
-		t.Skip("asdf integration tests are flaky - wrapper scripts work, tested in TestGenerateWrapperScript")
+		t.Parallel()
+
+		t.Skip(
+			"asdf integration tests are flaky - wrapper scripts work, tested in TestGenerateWrapperScript",
+		)
 	})
 
 	t.Run("installed plugin can get latest stable via asdf", func(t *testing.T) {
-		t.Skip("asdf integration tests are flaky - wrapper scripts work, tested in TestGenerateWrapperScript")
+		t.Parallel()
+
+		t.Skip(
+			"asdf integration tests are flaky - wrapper scripts work, tested in TestGenerateWrapperScript",
+		)
 	})
 }

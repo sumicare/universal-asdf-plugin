@@ -16,14 +16,61 @@
 package asdf_test
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
 	"github.com/sumicare/universal-asdf-plugin/plugins/asdf"
 )
+
+// createTestTarGz creates a tar.gz archive containing a single file.
+func createTestTarGz(t *testing.T, archivePath, fileName, content string) {
+	t.Helper()
+
+	file, err := os.Create(archivePath)
+	require.NoError(t, err)
+
+	defer file.Close()
+
+	gzWriter := gzip.NewWriter(file)
+	defer gzWriter.Close()
+
+	tarWriter := tar.NewWriter(gzWriter)
+	defer tarWriter.Close()
+
+	header := &tar.Header{
+		Name: fileName,
+		Mode: 0o755,
+		Size: int64(len(content)),
+	}
+	require.NoError(t, tarWriter.WriteHeader(header))
+
+	_, err = tarWriter.Write([]byte(content))
+	require.NoError(t, err)
+}
+
+// createTestZip creates a zip archive containing a single file.
+func createTestZip(t *testing.T, archivePath, fileName, content string) {
+	t.Helper()
+
+	file, err := os.Create(archivePath)
+	require.NoError(t, err)
+
+	defer file.Close()
+
+	zipWriter := zip.NewWriter(file)
+	defer zipWriter.Close()
+
+	writer, err := zipWriter.Create(fileName)
+	require.NoError(t, err)
+
+	_, err = writer.Write([]byte(content))
+	require.NoError(t, err)
+}
 
 func TestBinaryPluginBasicMethods(t *testing.T) {
 	t.Parallel()
@@ -57,7 +104,11 @@ func TestBinaryPluginInstall(t *testing.T) {
 
 	require.NoError(t, os.MkdirAll(downloadPath, asdf.CommonDirectoryPermission))
 
-	err := os.WriteFile(filepath.Join(downloadPath, "some-binary"), []byte("content"), asdf.CommonDirectoryPermission)
+	err := os.WriteFile(
+		filepath.Join(downloadPath, "some-binary"),
+		[]byte("content"),
+		asdf.CommonDirectoryPermission,
+	)
 	require.NoError(t, err)
 
 	config := asdf.BinaryPluginConfig{
@@ -87,7 +138,11 @@ func TestBinaryPluginUninstall(t *testing.T) {
 	plugin := asdf.NewBinaryPlugin(&config)
 
 	tempDir := t.TempDir()
-	err := os.WriteFile(filepath.Join(tempDir, "file"), []byte("content"), asdf.CommonFilePermission)
+	err := os.WriteFile(
+		filepath.Join(tempDir, "file"),
+		[]byte("content"),
+		asdf.CommonFilePermission,
+	)
 	require.NoError(t, err)
 
 	err = plugin.Uninstall(t.Context(), tempDir)
@@ -95,4 +150,133 @@ func TestBinaryPluginUninstall(t *testing.T) {
 
 	_, err = os.Stat(tempDir)
 	require.True(t, os.IsNotExist(err))
+}
+
+func TestBinaryPluginWithGithubClient(t *testing.T) {
+	t.Parallel()
+
+	config := asdf.BinaryPluginConfig{
+		Name:       "test-tool",
+		RepoOwner:  "owner",
+		RepoName:   "repo",
+		BinaryName: "test-tool",
+	}
+	plugin := asdf.NewBinaryPlugin(&config)
+
+	// WithGithubClient should return the same plugin for chaining
+	result := plugin.WithGithubClient(nil)
+	require.Same(t, plugin, result)
+}
+
+func TestBinaryPluginParseLegacyFile(t *testing.T) {
+	t.Parallel()
+
+	config := asdf.BinaryPluginConfig{
+		Name:       "test-tool",
+		RepoOwner:  "owner",
+		RepoName:   "repo",
+		BinaryName: "test-tool",
+	}
+	plugin := asdf.NewBinaryPlugin(&config)
+
+	t.Run("parses valid legacy file", func(t *testing.T) {
+		t.Parallel()
+
+		tempDir := t.TempDir()
+		legacyFile := filepath.Join(tempDir, ".test-version")
+		err := os.WriteFile(legacyFile, []byte("1.2.3\n"), asdf.CommonFilePermission)
+		require.NoError(t, err)
+
+		version, err := plugin.ParseLegacyFile(legacyFile)
+		require.NoError(t, err)
+		require.Equal(t, "1.2.3", version)
+	})
+
+	t.Run("returns error for missing file", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := plugin.ParseLegacyFile("/nonexistent/path")
+		require.Error(t, err)
+	})
+}
+
+func runBinaryPluginInstallWithArchive(
+	t *testing.T,
+	archiveFilename string,
+	createArchive func(t *testing.T, archivePath string),
+) {
+	t.Helper()
+
+	tempDir := t.TempDir()
+	downloadPath := filepath.Join(tempDir, "download")
+	installPath := filepath.Join(tempDir, "install")
+
+	require.NoError(t, os.MkdirAll(downloadPath, asdf.CommonDirectoryPermission))
+
+	archivePath := filepath.Join(downloadPath, archiveFilename)
+	createArchive(t, archivePath)
+
+	config := asdf.BinaryPluginConfig{
+		Name:       "test-tool",
+		RepoOwner:  "owner",
+		RepoName:   "repo",
+		BinaryName: "test-tool",
+	}
+	plugin := asdf.NewBinaryPlugin(&config)
+
+	err := plugin.Install(t.Context(), "1.0.0", downloadPath, installPath)
+	require.NoError(t, err)
+
+	_, err = os.Stat(filepath.Join(installPath, "bin", "test-tool"))
+	require.NoError(t, err)
+}
+
+func TestBinaryPluginInstallWithArchive(t *testing.T) {
+	t.Parallel()
+
+	runBinaryPluginInstallWithArchive(
+		t,
+		"test-tool.tar.gz",
+		func(t *testing.T, archivePath string) {
+			t.Helper()
+
+			createTestTarGz(t, archivePath, "test-tool", "binary content")
+		},
+	)
+}
+
+func TestBinaryPluginInstallWithZipArchive(t *testing.T) {
+	t.Parallel()
+
+	runBinaryPluginInstallWithArchive(t, "test-tool.zip", func(t *testing.T, archivePath string) {
+		t.Helper()
+
+		createTestZip(t, archivePath, "test-tool", "binary content")
+	})
+}
+
+func TestBinaryPluginInstallWithGzFile(t *testing.T) {
+	t.Parallel()
+
+	runBinaryPluginInstallWithArchive(t, "test-tool.gz", func(t *testing.T, archivePath string) {
+		t.Helper()
+
+		createTestGz(t, archivePath, "binary content")
+	})
+}
+
+// createTestGz creates a gzip file containing content.
+func createTestGz(t *testing.T, archivePath, content string) {
+	t.Helper()
+
+	file, err := os.Create(archivePath)
+	require.NoError(t, err)
+
+	defer file.Close()
+
+	gzWriter := gzip.NewWriter(file)
+	defer gzWriter.Close()
+
+	_, err = gzWriter.Write([]byte(content))
+	require.NoError(t, err)
 }

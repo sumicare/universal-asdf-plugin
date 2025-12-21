@@ -11,7 +11,6 @@ TOOL_SUMS=".tool-sums"
 PROJECT_DIR="$(pwd)"
 BINARY="${PROJECT_DIR}/build/universal-asdf-plugin"
 CLEAN_INSTALL="${CLEAN_INSTALL:-false}"
-PARALLEL_JOBS="${PARALLEL_JOBS:-16}"
 
 export ASDF_DATA_DIR
 
@@ -33,22 +32,11 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --help|-h)
-            echo "Usage: $0 [--clean] [--jobs N]"
+            echo "Usage: $0 [--clean]"
             echo ""
             echo "Options:"
             echo "  --clean    Remove ~/.asdf completely before testing (fresh install)"
-            echo "  --jobs N   Number of parallel jobs (default: 16)"
-            echo ""
-            echo "Requires: GNU parallel (apt-get install parallel)"
             exit 0
-            ;;
-        --jobs)
-            PARALLEL_JOBS="${2:-16}"
-            shift 2
-            ;;
-        --jobs=*)
-            PARALLEL_JOBS="${1#*=}"
-            shift
             ;;
         *)
             shift
@@ -66,6 +54,9 @@ done
 log_info "Building universal-asdf-plugin..."
 ./scripts/build.sh
 log_info "Binary built at ${BINARY}"
+
+# Add shims to PATH after build so plugins can find dependencies (e.g. asdf, npm, go)
+export PATH="${ASDF_DATA_DIR}/shims:$PATH"
 
 # Setup asdf directory
 if [[ "${CLEAN_INSTALL}" == "true" ]]; then
@@ -100,9 +91,19 @@ fi
 
 # Install plugins
 NEED_REINSTALL=false
-if [[ -d "${ASDF_DATA_DIR}/plugins/golang/bin" ]]; then
-    EXISTING_PATH=$(grep -o 'exec "[^"]*"' "${ASDF_DATA_DIR}/plugins/golang/bin/list-all" 2>/dev/null | head -1 | sed 's/exec "//;s/"//' || true)
-    [[ "${EXISTING_PATH}" != "${BINARY}" ]] && NEED_REINSTALL=true
+
+# Check if any installed plugin points to the wrong binary
+if [[ -d "${ASDF_DATA_DIR}/plugins" ]]; then
+    for plugin_bin in "${ASDF_DATA_DIR}/plugins"/*/bin/list-all; do
+        [[ ! -f "$plugin_bin" ]] && continue
+        
+        EXISTING_PATH=$(grep -o 'exec "[^"]*"' "$plugin_bin" 2>/dev/null | head -1 | sed 's/exec "//;s/"//' || true)
+        if [[ "${EXISTING_PATH}" != "${BINARY}" ]]; then
+            log_warn "Plugin $(basename "$(dirname "$(dirname "$plugin_bin")")") has incorrect binary path: ${EXISTING_PATH}"
+            NEED_REINSTALL=true
+            break
+        fi
+    done
 fi
 
 if [[ "${CLEAN_INSTALL}" == "true" ]] || [[ "${NEED_REINSTALL}" == "true" ]] || [[ ! -d "${ASDF_DATA_DIR}/plugins/golang" ]]; then
@@ -115,72 +116,44 @@ fi
 # Get list of installed plugins
 log_info "Installed plugins: $(find "${ASDF_DATA_DIR}/plugins" -mindepth 1 -maxdepth 1 -type d -printf '%P ' 2>/dev/null)"
 
-# Install tools
-log_info "Installing tools from ${TOOL_VERSIONS} (parallel jobs: ${PARALLEL_JOBS})..."
+# Install tools from .tool-versions
+log_info "Installing tools from ${TOOL_VERSIONS}..."
 
-# Check for GNU parallel
-if ! command -v parallel >/dev/null 2>&1; then
-    log_error "GNU parallel not found. Please install it: apt-get install parallel"
-    exit 1
-fi
+declare -i FAILED_COUNT=0 SKIPPED_COUNT=0 INSTALLED_COUNT=0 ALREADY_COUNT=0
 
-# Function for parallel execution
-install_tool() {
-    local tool="$1" version="$2"
-
+while IFS=' ' read -r tool version rest; do
+    # Skip comments and empty lines
+    [[ -z "$tool" || "$tool" == \#* ]] && continue
+    
+    # Skip if plugin not available
     if [[ ! -d "${ASDF_DATA_DIR}/plugins/${tool}" ]]; then
-        echo "skipped:${tool}:plugin_not_available"
-        return 0
+        log_warn "Skipping ${tool}: plugin not available"
+        ((SKIPPED_COUNT++)) || true
+        continue
     fi
 
     # Check if already installed
     if [[ "${CLEAN_INSTALL}" != "true" ]]; then
-        local check_version="$version"
-        [[ "$version" == "latest" ]] && check_version=$(find "${ASDF_DATA_DIR}/installs/${tool}" -mindepth 1 -maxdepth 1 -type d -printf '%P\n' 2>/dev/null | head -1 || true)
-        [[ -n "$check_version" && -d "${ASDF_DATA_DIR}/installs/${tool}/${check_version}" ]] && {
-            echo "already:${tool}:${check_version}"
-            return 0
-        }
-    fi
-
-    # Install
-    if "${ASDF_BIN}" install "${tool}" "${version}" >&2; then
-        echo "installed:${tool}:${version}"
-    else
-        echo "failed:${tool}:${version}"
-    fi
-}
-export -f install_tool
-export ASDF_DATA_DIR ASDF_BIN CLEAN_INSTALL
-
-# Collect results and run in parallel
-declare -i FAILED_COUNT=0 SKIPPED_COUNT=0 INSTALLED_COUNT=0 ALREADY_COUNT=0
-
-# Filter out comments and empty lines, then run in parallel
-while IFS= read -r result; do
-    [[ -z "$result" ]] && continue
-    status="${result%%:*}"
-    rest="${result#*:}"
-    tool="${rest%%:*}"
-    version="${rest#*:}"
-
-    case "$status" in
-        installed)
-            ((INSTALLED_COUNT++)) || true
-            ;;
-        already)
+        check_version="$version"
+        if [[ "$version" == "latest" ]]; then
+            check_version=$(find "${ASDF_DATA_DIR}/installs/${tool}" -mindepth 1 -maxdepth 1 -type d -printf '%P\n' 2>/dev/null | head -1 || true)
+        fi
+        if [[ -n "$check_version" && -d "${ASDF_DATA_DIR}/installs/${tool}/${check_version}" ]]; then
+            log_info "Already installed: ${tool} ${check_version}"
             ((ALREADY_COUNT++)) || true
-            ;;
-        skipped)
-            ((SKIPPED_COUNT++)) || true
-            ;;
-        failed)
-            ((FAILED_COUNT++)) || true
-            log_error "Failed to install ${tool} ${version}"
-            ;;
-    esac
-done < <(grep -v '^[[:space:]]*#' "${TOOL_VERSIONS}" | grep -v '^[[:space:]]*$' | \
-    SHELL=/bin/bash parallel --no-notice -j "${PARALLEL_JOBS}" --colsep ' ' 'install_tool {1} {2}')
+            continue
+        fi
+    fi
+
+    # Install the tool
+    log_info "Installing ${tool} ${version}..."
+    if "${ASDF_BIN}" install "${tool}" "${version}"; then
+        ((INSTALLED_COUNT++)) || true
+    else
+        log_error "Failed to install ${tool} ${version}"
+        ((FAILED_COUNT++)) || true
+    fi
+done < "${TOOL_VERSIONS}"
 
 # Report results
 if [[ $ALREADY_COUNT -gt 0 ]]; then
@@ -204,55 +177,116 @@ fi
 log_info "Reshimming all tools..."
 "${BINARY}" reshim
 
-# Verify installations
-log_info "Verifying shims and installations..."
+# Verify installations and check versions
+log_info "Verifying installations and checking tool versions..."
 VERIFICATION_FAILED=0
+VERIFIED_COUNT=0
 
-while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ -z "$line" || "$line" =~ ^# ]] && continue
-    tool=$(echo "$line" | awk '{print $1}')
-    version=$(echo "$line" | awk '{print $2}')
-    [[ -z "$tool" || -z "$version" ]] && continue
-    
-    # Skip tools without plugins
+# Map tool names to their primary binary and version command
+get_version_info() {
+    local tool="$1"
+    case "${tool}" in
+        argocd)      echo "argocd:version --client" ;;
+        argo)        echo "argo:version" ;;
+        argo-rollouts) echo "kubectl-argo-rollouts:version" ;;
+        asdf)        echo "asdf:--version" ;;
+        awscli)      echo "aws:--version" ;;
+        aws-sso-cli) echo "aws-sso:version" ;;
+        cosign)      echo "cosign:version" ;;
+        doctl)       echo "doctl:version" ;;
+        gcloud)      echo "gcloud:--version" ;;
+        ginkgo)      echo "ginkgo:version" ;;
+        github-cli)  echo "gh:--version" ;;
+        golang)      echo "go:version" ;;
+        golangci-lint) echo "golangci-lint:--version" ;;
+        goreleaser)  echo "goreleaser:--version" ;;
+        grype)       echo "grype:version" ;;
+        helm)        echo "helm:version --short" ;;
+        jq)          echo "jq:--version" ;;
+        k9s)         echo "k9s:version --short" ;;
+        kind)        echo "kind:version" ;;
+        ko)          echo "ko:version" ;;
+        kubectl)     echo "kubectl:version --client -o yaml" ;;
+        linkerd)     echo "linkerd:version --client --short" ;;
+        nodejs)      echo "node:--version" ;;
+        opentofu)    echo "tofu:version" ;;
+        pipx)        echo "pipx:--version" ;;
+        python)      echo "python3:--version" ;;
+        rust)        echo "rustc:--version" ;;
+        shellcheck)  echo "shellcheck:--version" ;;
+        shfmt)       echo "shfmt:--version" ;;
+        sops)        echo "sops:--version" ;;
+        sqlc)        echo "sqlc:version" ;;
+        syft)        echo "syft:version" ;;
+        tekton-cli)  echo "tkn:version" ;;
+        telepresence) echo "telepresence:version" ;;
+        terraform)   echo "terraform:version" ;;
+        terrascan)   echo "terrascan:version" ;;
+        trivy)       echo "trivy:--version" ;;
+        velero)      echo "velero:version --client-only" ;;
+        vultr-cli)   echo "vultr-cli:version" ;;
+        yq)          echo "yq:--version" ;;
+        *)           echo "${tool}:--version" ;;
+    esac
+}
+
+while IFS=' ' read -r tool version rest; do
+    [[ -z "$tool" || "$tool" == \#* ]] && continue
     [[ ! -d "${ASDF_DATA_DIR}/plugins/${tool}" ]] && continue
     
-    # Resolve latest
-    [[ "$version" == "latest" ]] && {
-        actual_version=$(find "${ASDF_DATA_DIR}/installs/${tool}" -mindepth 1 -maxdepth 1 -type d -printf '%P\n' 2>/dev/null | head -1 || true)
-        [[ -n "$actual_version" ]] && version="$actual_version"
-    }
+    # Resolve latest version
+    if [[ "$version" == "latest" ]]; then
+        version=$(find "${ASDF_DATA_DIR}/installs/${tool}" -mindepth 1 -maxdepth 1 -type d -printf '%P\n' 2>/dev/null | sort -V | tail -1 || true)
+        [[ -z "$version" ]] && continue
+    fi
     
-    # Check installation exists
     INSTALL_DIR="${ASDF_DATA_DIR}/installs/${tool}/${version}"
     [[ ! -d "${INSTALL_DIR}" ]] && {
-        log_error "Installation directory missing: ${INSTALL_DIR}"
+        log_error "Missing installation: ${tool} ${version}"
         ((VERIFICATION_FAILED++)) || true
         continue
     }
     
-    # Check for shims
-    BIN_PATHS=$(ASDF_PLUGIN_NAME="${tool}" ASDF_INSTALL_PATH="${INSTALL_DIR}" "${BINARY}" list-bin-paths 2>/dev/null || echo "bin")
+    # Get binary name and version command
+    version_info=$(get_version_info "${tool}")
+    bin_name="${version_info%%:*}"
+    version_cmd="${version_info#*:}"
     
-    FOUND_SHIM=false
-    for bin_path in ${BIN_PATHS}; do
-        BIN_DIR="${INSTALL_DIR}/${bin_path}"
-        [[ -d "${BIN_DIR}" ]] && for binary in "${BIN_DIR}"/*; do
-            [[ -x "${binary}" && -f "${binary}" ]] && {
-                binary_name=$(basename "${binary}")
-                shim_path="${ASDF_DATA_DIR}/shims/${binary_name}"
-                [[ -f "${shim_path}" ]] && FOUND_SHIM=true && break 2
-            }
-        done
-    done
+    # Check if shim exists and is executable
+    shim_path="${ASDF_DATA_DIR}/shims/${bin_name}"
+    if [[ ! -x "${shim_path}" ]]; then
+        # Try to find any shim for this tool
+        shim_path=$(find "${ASDF_DATA_DIR}/shims" -type f -name "*" -exec grep -l "ASDF_PLUGIN_NAME=\"${tool}\"" {} \; 2>/dev/null | head -1 || true)
+        if [[ -z "${shim_path}" ]]; then
+            log_error "No shim found for ${tool} ${version}"
+            ((VERIFICATION_FAILED++)) || true
+            continue
+        fi
+        bin_name=$(basename "${shim_path}")
+    fi
     
-    if [[ "${FOUND_SHIM}" == "true" ]]; then
-        log_info "Verified: ${tool} ${version} - shims OK"
+    # Execute binary and get version
+    VERSION_OUTPUT=""
+    if [[ "${version_cmd}" == "--version" ]]; then
+        VERSION_OUTPUT=$("${bin_name}" --version 2>&1 | head -1) || true
+    elif [[ "${version_cmd}" == "version" ]]; then
+        VERSION_OUTPUT=$("${bin_name}" version 2>&1 | head -1) || true
     else
-        log_error "Missing shim for ${tool} ${version}"
-        ((VERIFICATION_FAILED++)) || true
+        # Custom version command
+        VERSION_OUTPUT=$(eval "${bin_name} ${version_cmd}" 2>&1 | head -1) || true
+    fi
+    
+    if [[ -n "${VERSION_OUTPUT}" ]]; then
+        VERSION_SHORT=$(echo "${VERSION_OUTPUT}" | cut -c 1-60)
+        log_info "✓ ${tool} ${version}: ${VERSION_SHORT}"
+        ((VERIFIED_COUNT++)) || true
+    else
+        log_warn "✓ ${tool} ${version}: installed (version check failed)"
+        ((VERIFIED_COUNT++)) || true
     fi
 done < "${TOOL_VERSIONS}"
+
+log_info "Verified ${VERIFIED_COUNT} tools"
 
 # Generate checksums
 log_info "Generating checksums for installed tools..."

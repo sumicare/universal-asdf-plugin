@@ -76,7 +76,8 @@ func extractTarEntries(tr *tar.Reader, destDir string) error {
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, header.FileInfo().Mode().Perm()); err != nil {
+			err := os.MkdirAll(target, header.FileInfo().Mode().Perm())
+			if err != nil {
 				return fmt.Errorf("creating directory %s: %w", target, err)
 			}
 
@@ -105,17 +106,20 @@ func extractTarEntries(tr *tar.Reader, destDir string) error {
 
 			if _, err := io.Copy(lw, tr); err != nil {
 				outFile.Close()
+
 				return fmt.Errorf("writing file %s: %w", target, err)
 			}
 
 			outFile.Close()
 
 		case tar.TypeSymlink:
-			if err := os.MkdirAll(filepath.Dir(target), CommonDirectoryPermission); err != nil {
+			err := os.MkdirAll(filepath.Dir(target), CommonDirectoryPermission)
+			if err != nil {
 				return fmt.Errorf("creating parent directory: %w", err)
 			}
 
-			if err := os.Symlink(header.Linkname, target); err != nil {
+			err = os.Symlink(header.Linkname, target)
+			if err != nil {
 				return fmt.Errorf("creating symlink %s: %w", target, err)
 			}
 		}
@@ -180,7 +184,8 @@ func ExtractZip(archivePath, destDir string) error {
 		}
 
 		if zipFile.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, CommonDirectoryPermission); err != nil {
+			err := os.MkdirAll(target, CommonDirectoryPermission)
+			if err != nil {
 				return fmt.Errorf("creating directory %s: %w", target, err)
 			}
 
@@ -199,6 +204,7 @@ func ExtractZip(archivePath, destDir string) error {
 		outFile, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, zipFile.Mode())
 		if err != nil {
 			rc.Close()
+
 			return fmt.Errorf("creating file %s: %w", target, err)
 		}
 
@@ -209,7 +215,8 @@ func ExtractZip(archivePath, destDir string) error {
 			maxFile:  maxArchiveFileBytes,
 		}
 
-		if _, err := io.Copy(lw, rc); err != nil { //nolint:gosec // G110: decompressed size is bounded by limitedArchiveWriter
+		//nolint:gosec // G110: decompressed size is bounded by limitedArchiveWriter
+		if _, err := io.Copy(lw, rc); err != nil {
 			outFile.Close()
 			rc.Close()
 
@@ -252,7 +259,8 @@ func ExtractGz(gzPath, destPath string) error {
 		maxFile:  maxArchiveFileBytes,
 	}
 
-	if _, err := io.Copy(lw, gzr); err != nil { //nolint:gosec // G110: decompressed size is bounded by limitedArchiveWriter
+	//nolint:gosec // G110: decompressed size is bounded by limitedArchiveWriter
+	if _, err := io.Copy(lw, gzr); err != nil {
 		return fmt.Errorf("extracting gz: %w", err)
 	}
 

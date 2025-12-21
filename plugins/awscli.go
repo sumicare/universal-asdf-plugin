@@ -151,7 +151,13 @@ func (plugin *AwscliPlugin) LatestStable(ctx context.Context, query string) (str
 		return "", err
 	}
 
-	return asdf.LatestStableWithQuery(ctx, query, versions, errAWSNoVersionsFound, errAWSNoVersionsMatching)
+	return asdf.LatestStableWithQuery(
+		ctx,
+		query,
+		versions,
+		errAWSNoVersionsFound,
+		errAWSNoVersionsMatching,
+	)
 }
 
 // getDownloadURL returns the download URL for the specified version.
@@ -160,9 +166,17 @@ func (*AwscliPlugin) getDownloadURL(version string) (string, error) {
 	case "linux":
 		switch runtime.GOARCH {
 		case "amd64":
-			return fmt.Sprintf("%s/awscli-exe-linux-x86_64-%s.zip", awscliDownloadBaseURL, version), nil
+			return fmt.Sprintf(
+				"%s/awscli-exe-linux-x86_64-%s.zip",
+				awscliDownloadBaseURL,
+				version,
+			), nil
 		case "arm64":
-			return fmt.Sprintf("%s/awscli-exe-linux-aarch64-%s.zip", awscliDownloadBaseURL, version), nil
+			return fmt.Sprintf(
+				"%s/awscli-exe-linux-aarch64-%s.zip",
+				awscliDownloadBaseURL,
+				version,
+			), nil
 		}
 
 	case "darwin":
@@ -184,6 +198,7 @@ func (plugin *AwscliPlugin) Download(ctx context.Context, version, downloadPath 
 	filePath := filepath.Join(downloadPath, filename)
 	if info, err := os.Stat(filePath); err == nil && info.Size() > 1024 {
 		asdf.Msgf("Using cached download for awscli %s", version)
+
 		return nil
 	}
 
@@ -202,7 +217,11 @@ func (plugin *AwscliPlugin) Download(ctx context.Context, version, downloadPath 
 		return fmt.Errorf("%w with status: %d", errAWSDownloadFailed, resp.StatusCode)
 	}
 
-	outFile, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, asdf.CommonFilePermission)
+	outFile, err := os.OpenFile(
+		filePath,
+		os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
+		asdf.CommonFilePermission,
+	)
 	if err != nil {
 		return fmt.Errorf("creating file: %w", err)
 	}
@@ -213,7 +232,8 @@ func (plugin *AwscliPlugin) Download(ctx context.Context, version, downloadPath 
 	}
 
 	if strings.HasSuffix(filename, ".zip") {
-		if err := asdf.ExtractZip(filePath, downloadPath); err != nil {
+		err := asdf.ExtractZip(filePath, downloadPath)
+		if err != nil {
 			return fmt.Errorf("extracting zip: %w", err)
 		}
 	}
@@ -222,7 +242,10 @@ func (plugin *AwscliPlugin) Download(ctx context.Context, version, downloadPath 
 }
 
 // Install installs AWS CLI from the downloaded files.
-func (plugin *AwscliPlugin) Install(ctx context.Context, version, downloadPath, installPath string) error {
+func (plugin *AwscliPlugin) Install(
+	ctx context.Context,
+	version, downloadPath, installPath string,
+) error {
 	switch runtime.GOOS {
 	case "linux":
 		return plugin.installLinux(ctx, downloadPath, installPath)
@@ -237,7 +260,8 @@ func (plugin *AwscliPlugin) Install(ctx context.Context, version, downloadPath, 
 func (*AwscliPlugin) installLinux(ctx context.Context, downloadPath, installPath string) error {
 	installerPath := filepath.Join(downloadPath, "aws", "install")
 
-	if err := os.Chmod(installerPath, asdf.CommonDirectoryPermission); err != nil {
+	err := os.Chmod(installerPath, asdf.CommonDirectoryPermission)
+	if err != nil {
 		return fmt.Errorf("making installer executable: %w", err)
 	}
 
@@ -249,7 +273,8 @@ func (*AwscliPlugin) installLinux(ctx context.Context, downloadPath, installPath
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	if err := cmd.Run(); err != nil {
+	err = cmd.Run()
+	if err != nil {
 		return fmt.Errorf("running installer: %w", err)
 	}
 
@@ -257,18 +282,25 @@ func (*AwscliPlugin) installLinux(ctx context.Context, downloadPath, installPath
 }
 
 // installDarwin installs AWS CLI on macOS.
-func (*AwscliPlugin) installDarwin(ctx context.Context, version, downloadPath, installPath string) error {
+func (*AwscliPlugin) installDarwin(
+	ctx context.Context,
+	version, downloadPath, installPath string,
+) error {
 	pkgPath := filepath.Join(downloadPath, fmt.Sprintf("AWSCLIV2-%s.pkg", version))
 
 	binDir := filepath.Join(installPath, "bin")
-	if err := os.MkdirAll(binDir, asdf.CommonDirectoryPermission); err != nil {
+
+	err := os.MkdirAll(binDir, asdf.CommonDirectoryPermission)
+	if err != nil {
 		return fmt.Errorf("creating bin directory: %w", err)
 	}
 
 	extractDir := filepath.Join(downloadPath, "extracted")
 
 	cmd := exec.CommandContext(ctx, "pkgutil", "--expand-full", pkgPath, extractDir)
-	if err := cmd.Run(); err != nil {
+
+	err = cmd.Run()
+	if err != nil {
 		return fmt.Errorf("extracting pkg: %w", err)
 	}
 
@@ -276,18 +308,22 @@ func (*AwscliPlugin) installDarwin(ctx context.Context, version, downloadPath, i
 	awsCliDst := filepath.Join(installPath, "aws-cli")
 
 	cmd = exec.CommandContext(ctx, "cp", "-r", awsCliSrc, awsCliDst)
-	if err := cmd.Run(); err != nil {
+
+	err = cmd.Run()
+	if err != nil {
 		return fmt.Errorf("copying aws-cli: %w", err)
 	}
 
 	awsBin := filepath.Join(awsCliDst, "aws")
 	awsCompleter := filepath.Join(awsCliDst, "aws_completer")
 
-	if err := os.Symlink(awsBin, filepath.Join(binDir, "aws")); err != nil {
+	err = os.Symlink(awsBin, filepath.Join(binDir, "aws"))
+	if err != nil {
 		return fmt.Errorf("creating aws symlink: %w", err)
 	}
 
-	if err := os.Symlink(awsCompleter, filepath.Join(binDir, "aws_completer")); err != nil {
+	err = os.Symlink(awsCompleter, filepath.Join(binDir, "aws_completer"))
+	if err != nil {
 		return fmt.Errorf("creating aws_completer symlink: %w", err)
 	}
 

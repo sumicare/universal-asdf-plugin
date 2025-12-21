@@ -30,16 +30,17 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/urfave/cli/v2"
-
 	p "github.com/sumicare/universal-asdf-plugin/plugins"
 	"github.com/sumicare/universal-asdf-plugin/plugins/asdf"
 	"github.com/sumicare/universal-asdf-plugin/plugins/asdf/plugins"
+	"github.com/urfave/cli/v2"
 )
 
 var (
 	// errPluginNameRequired is returned when no plugin name can be determined.
-	errPluginNameRequired = errors.New("plugin name required. Set ASDF_PLUGIN_NAME or specify as argument")
+	errPluginNameRequired = errors.New(
+		"plugin name required. Set ASDF_PLUGIN_NAME or specify as argument",
+	)
 	// errASDFInstallVersionNotSet is returned when ASDF_INSTALL_VERSION is missing.
 	errASDFInstallVersionNotSet = errors.New("ASDF_INSTALL_VERSION not set")
 	// errASDFDownloadPathNotSet is returned when ASDF_DOWNLOAD_PATH is missing.
@@ -52,6 +53,14 @@ var (
 	errAsdfPluginCastFailed = errors.New("failed to cast to AsdfPlugin")
 	// errChecksumMismatch is returned when a recorded checksum does not match.
 	errChecksumMismatch = errors.New("checksum mismatch")
+	// errWhichUsage indicates invalid usage of the which command.
+	errWhichUsage = errors.New("usage: asdf which <tool>")
+	// errNoVersionSet is returned when no version is configured for a tool.
+	errNoVersionSet = errors.New("no version set")
+	// errVersionNotInstalled is returned when a version is not installed.
+	errVersionNotInstalled = errors.New("version is not installed")
+	// errNoExecutableFound is returned when no executable can be located in an install.
+	errNoExecutableFound = errors.New("no executable found")
 
 	// version, commit and date are set via ldflags at build time by the release
 	// tooling. These fields are surfaced via the "version" subcommand.
@@ -68,7 +77,9 @@ func main() {
 	app := newCLIApp()
 
 	args := reorderFlags(os.Args)
-	if err := app.Run(args); err != nil {
+
+	err := app.Run(args)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -87,9 +98,11 @@ func reorderFlags(args []string) []string {
 	result = append(result, args[0])
 
 	var cmdIdx int
+
 	for i := 1; i < len(args); i++ {
 		if !strings.HasPrefix(args[i], "-") {
 			cmdIdx = i
+
 			break
 		}
 	}
@@ -115,7 +128,8 @@ func reorderFlags(args []string) []string {
 	for i := cmdIdx; i < len(args); i++ {
 		if strings.HasPrefix(args[i], "-") {
 			flags = append(flags, args[i])
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && !strings.Contains(args[i], "=") {
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") &&
+				!strings.Contains(args[i], "=") {
 				i++
 
 				flags = append(flags, args[i])
@@ -183,67 +197,70 @@ func newCLIApp() *cli.App {
 				Name:  "plugins",
 				Usage: "List available plugins",
 				Action: func(_ *cli.Context) error {
-					fmt.Println("Available plugins:")
-					fmt.Println("  argo          - Argo Workflows CLI")
-					fmt.Println("  argocd        - ArgoCD CLI")
-					fmt.Println("  argo-rollouts - Argo Rollouts CLI")
-					fmt.Println("  aws-nuke      - AWS resource cleanup")
-					fmt.Println("  aws-sso-cli   - AWS SSO CLI")
-					fmt.Println("  awscli        - AWS Command Line Interface")
-					fmt.Println("  buf           - Protocol Buffers tooling")
-					fmt.Println("  checkov       - IaC security scanner")
-					fmt.Println("  cmake         - Build system generator")
-					fmt.Println("  cosign        - Cosign container signing")
-					fmt.Println("  doctl         - DigitalOcean CLI")
-					fmt.Println("  gcloud        - Google Cloud SDK")
-					fmt.Println("  jq            - Command-line JSON processor")
-					fmt.Println("  k9s           - Kubernetes CLI")
-					fmt.Println("  kind          - Kubernetes IN Docker")
-					fmt.Println("  ko            - Container image builder")
-					fmt.Println("  kubectl       - Kubernetes CLI")
-					fmt.Println("  lazygit       - Git TUI")
-					fmt.Println("  linkerd       - Service mesh")
-					fmt.Println("  nerdctl       - Docker-compatible CLI")
-					fmt.Println("  ginkgo        - BDD testing framework")
-					fmt.Println("  github-cli    - GitHub CLI")
-					fmt.Println("  gitsign       - Git commit signing")
-					fmt.Println("  gitleaks      - Detect secrets in code")
-					fmt.Println("  golang        - Go programming language")
-					fmt.Println("  goreleaser    - Release automation")
-					fmt.Println("  golangci-lint - Go linters aggregator")
-					fmt.Println("  grype         - Vulnerability scanner")
-					fmt.Println("  helm          - Kubernetes Package Manager")
-					fmt.Println("  pipx          - Python app installer")
-					fmt.Println("  python        - Python programming language")
-					fmt.Println("  rust          - Rust programming language")
-					fmt.Println("  sccache       - Compiler cache")
-					fmt.Println("  shellcheck    - Shell script analysis")
-					fmt.Println("  shfmt         - Shell script formatter")
-					fmt.Println("  sops          - Secrets management")
-					fmt.Println("  syft          - SBOM generator")
-					fmt.Println("  terraform     - Infrastructure as Code")
-					fmt.Println("  tflint        - Terraform linter")
-					fmt.Println("  trivy         - Container vulnerability scanner")
-					fmt.Println("  terragrunt    - Terraform wrapper")
-					fmt.Println("  terrascan     - IaC security scanner")
-					fmt.Println("  tfupdate      - Terraform updater")
-					fmt.Println("  vultr-cli     - Vultr CLI")
-					fmt.Println("  nodejs        - Node.js runtime")
-					fmt.Println("  opentofu      - Open source Terraform")
-					fmt.Println("  protoc        - Protocol Buffers compiler")
-					fmt.Println("  protoc-gen-go - Go protobuf generator")
-					fmt.Println("  protoc-gen-go-grpc - gRPC Go protoc plugin")
-					fmt.Println("  protoc-gen-grpc-web - gRPC-Web protoc plugin")
-					fmt.Println("  protolint     - Protocol Buffers linter")
-					fmt.Println("  sqlc          - SQL code generator")
-					fmt.Println("  tekton-cli    - Tekton CLI")
-					fmt.Println("  telepresence  - K8s local dev")
-					fmt.Println("  traefik       - Cloud native proxy")
-					fmt.Println("  velero        - Kubernetes backup")
-					fmt.Println("  upx           - Executable packer")
-					fmt.Println("  uv            - Python package manager")
-					fmt.Println("  yq            - YAML processor")
-					fmt.Println("  zig           - Zig programming language")
+					_, _ = fmt.Fprintln(os.Stdout, "Available plugins:")
+					_, _ = fmt.Fprintln(os.Stdout, "  argo          - Argo Workflows CLI")
+					_, _ = fmt.Fprintln(os.Stdout, "  argocd        - ArgoCD CLI")
+					_, _ = fmt.Fprintln(os.Stdout, "  argo-rollouts - Argo Rollouts CLI")
+					_, _ = fmt.Fprintln(os.Stdout, "  aws-nuke      - AWS resource cleanup")
+					_, _ = fmt.Fprintln(os.Stdout, "  aws-sso-cli   - AWS SSO CLI")
+					_, _ = fmt.Fprintln(os.Stdout, "  awscli        - AWS Command Line Interface")
+					_, _ = fmt.Fprintln(os.Stdout, "  buf           - Protocol Buffers tooling")
+					_, _ = fmt.Fprintln(os.Stdout, "  checkov       - IaC security scanner")
+					_, _ = fmt.Fprintln(os.Stdout, "  cmake         - Build system generator")
+					_, _ = fmt.Fprintln(os.Stdout, "  cosign        - Cosign container signing")
+					_, _ = fmt.Fprintln(os.Stdout, "  doctl         - DigitalOcean CLI")
+					_, _ = fmt.Fprintln(os.Stdout, "  gcloud        - Google Cloud SDK")
+					_, _ = fmt.Fprintln(os.Stdout, "  jq            - Command-line JSON processor")
+					_, _ = fmt.Fprintln(os.Stdout, "  k9s           - Kubernetes CLI")
+					_, _ = fmt.Fprintln(os.Stdout, "  kind          - Kubernetes IN Docker")
+					_, _ = fmt.Fprintln(os.Stdout, "  ko            - Container image builder")
+					_, _ = fmt.Fprintln(os.Stdout, "  kubectl       - Kubernetes CLI")
+					_, _ = fmt.Fprintln(os.Stdout, "  lazygit       - Git TUI")
+					_, _ = fmt.Fprintln(os.Stdout, "  linkerd       - Service mesh")
+					_, _ = fmt.Fprintln(os.Stdout, "  nerdctl       - Docker-compatible CLI")
+					_, _ = fmt.Fprintln(os.Stdout, "  ginkgo        - BDD testing framework")
+					_, _ = fmt.Fprintln(os.Stdout, "  github-cli    - GitHub CLI")
+					_, _ = fmt.Fprintln(os.Stdout, "  gitsign       - Git commit signing")
+					_, _ = fmt.Fprintln(os.Stdout, "  gitleaks      - Detect secrets in code")
+					_, _ = fmt.Fprintln(os.Stdout, "  golang        - Go programming language")
+					_, _ = fmt.Fprintln(os.Stdout, "  goreleaser    - Release automation")
+					_, _ = fmt.Fprintln(os.Stdout, "  golangci-lint - Go linters aggregator")
+					_, _ = fmt.Fprintln(os.Stdout, "  grype         - Vulnerability scanner")
+					_, _ = fmt.Fprintln(os.Stdout, "  helm          - Kubernetes Package Manager")
+					_, _ = fmt.Fprintln(os.Stdout, "  pipx          - Python app installer")
+					_, _ = fmt.Fprintln(os.Stdout, "  python        - Python programming language")
+					_, _ = fmt.Fprintln(os.Stdout, "  rust          - Rust programming language")
+					_, _ = fmt.Fprintln(os.Stdout, "  sccache       - Compiler cache")
+					_, _ = fmt.Fprintln(os.Stdout, "  shellcheck    - Shell script analysis")
+					_, _ = fmt.Fprintln(os.Stdout, "  shfmt         - Shell script formatter")
+					_, _ = fmt.Fprintln(os.Stdout, "  sops          - Secrets management")
+					_, _ = fmt.Fprintln(os.Stdout, "  syft          - SBOM generator")
+					_, _ = fmt.Fprintln(os.Stdout, "  terraform     - Infrastructure as Code")
+					_, _ = fmt.Fprintln(os.Stdout, "  tflint        - Terraform linter")
+					_, _ = fmt.Fprintln(
+						os.Stdout,
+						"  trivy         - Container vulnerability scanner",
+					)
+					_, _ = fmt.Fprintln(os.Stdout, "  terragrunt    - Terraform wrapper")
+					_, _ = fmt.Fprintln(os.Stdout, "  terrascan     - IaC security scanner")
+					_, _ = fmt.Fprintln(os.Stdout, "  tfupdate      - Terraform updater")
+					_, _ = fmt.Fprintln(os.Stdout, "  vultr-cli     - Vultr CLI")
+					_, _ = fmt.Fprintln(os.Stdout, "  nodejs        - Node.js runtime")
+					_, _ = fmt.Fprintln(os.Stdout, "  opentofu      - Open source Terraform")
+					_, _ = fmt.Fprintln(os.Stdout, "  protoc        - Protocol Buffers compiler")
+					_, _ = fmt.Fprintln(os.Stdout, "  protoc-gen-go - Go protobuf generator")
+					_, _ = fmt.Fprintln(os.Stdout, "  protoc-gen-go-grpc - gRPC Go protoc plugin")
+					_, _ = fmt.Fprintln(os.Stdout, "  protoc-gen-grpc-web - gRPC-Web protoc plugin")
+					_, _ = fmt.Fprintln(os.Stdout, "  protolint     - Protocol Buffers linter")
+					_, _ = fmt.Fprintln(os.Stdout, "  sqlc          - SQL code generator")
+					_, _ = fmt.Fprintln(os.Stdout, "  tekton-cli    - Tekton CLI")
+					_, _ = fmt.Fprintln(os.Stdout, "  telepresence  - K8s local dev")
+					_, _ = fmt.Fprintln(os.Stdout, "  traefik       - Cloud native proxy")
+					_, _ = fmt.Fprintln(os.Stdout, "  velero        - Kubernetes backup")
+					_, _ = fmt.Fprintln(os.Stdout, "  upx           - Executable packer")
+					_, _ = fmt.Fprintln(os.Stdout, "  uv            - Python package manager")
+					_, _ = fmt.Fprintln(os.Stdout, "  yq            - YAML processor")
+					_, _ = fmt.Fprintln(os.Stdout, "  zig           - Zig programming language")
 
 					return nil
 				},
@@ -277,6 +294,27 @@ func newCLIApp() *cli.App {
 				},
 			},
 			{
+				Name:  "which",
+				Usage: "Display the path to an executable",
+				Flags: []cli.Flag{pluginFlag, versionFlag},
+				Action: func(cliContext *cli.Context) error {
+					toolName := cliContext.Args().First()
+					if toolName == "" {
+						// Try to resolve from flags/context
+						plugin, _, err := resolvePluginFromContext(cliContext)
+						if err == nil {
+							toolName = plugin.Name()
+						}
+					}
+
+					if toolName == "" {
+						return errWhichUsage
+					}
+
+					return cmdWhich(toolName)
+				},
+			},
+			{
 				Name:  "list-all",
 				Usage: "List all available versions for a plugin",
 				Flags: []cli.Flag{pluginFlag},
@@ -294,12 +332,16 @@ func newCLIApp() *cli.App {
 				Usage: "Download a specific version (verifies/records checksums)",
 				Flags: []cli.Flag{pluginFlag, versionFlag, downloadPathFlag},
 				Action: func(cliContext *cli.Context) error {
-					plugin, _, err := resolvePluginFromContext(cliContext)
+					plugin, args, err := resolvePluginFromContext(cliContext)
 					if err != nil {
 						return err
 					}
 
 					installVersion := cliContext.String("version")
+					if installVersion == "" && len(args) > 0 {
+						installVersion = args[0]
+					}
+
 					if installVersion == "" {
 						latestVersion, err := plugin.LatestStable(cliContext.Context, "")
 						if err != nil {
@@ -311,7 +353,12 @@ func newCLIApp() *cli.App {
 
 					downloadPath := cliContext.String("download-path")
 					if downloadPath == "" {
-						downloadPath = filepath.Join(getAsdfDataDir(), "downloads", plugin.Name(), installVersion)
+						downloadPath = filepath.Join(
+							getAsdfDataDir(),
+							"downloads",
+							plugin.Name(),
+							installVersion,
+						)
 					}
 
 					return cmdDownload(cliContext.Context, plugin, installVersion, downloadPath)
@@ -322,12 +369,16 @@ func newCLIApp() *cli.App {
 				Usage: "Install a specific version",
 				Flags: []cli.Flag{pluginFlag, versionFlag, downloadPathFlag, installPathFlag},
 				Action: func(cliContext *cli.Context) error {
-					plugin, _, err := resolvePluginFromContext(cliContext)
+					plugin, args, err := resolvePluginFromContext(cliContext)
 					if err != nil {
 						return err
 					}
 
 					installVersion := cliContext.String("version")
+					if installVersion == "" && len(args) > 0 {
+						installVersion = args[0]
+					}
+
 					if installVersion == "" {
 						latestVersion, err := plugin.LatestStable(cliContext.Context, "")
 						if err != nil {
@@ -339,29 +390,55 @@ func newCLIApp() *cli.App {
 
 					installPath := cliContext.String("install-path")
 					if installPath == "" {
-						installPath = filepath.Join(getAsdfDataDir(), "installs", plugin.Name(), installVersion)
+						installPath = filepath.Join(
+							getAsdfDataDir(),
+							"installs",
+							plugin.Name(),
+							installVersion,
+						)
 					}
 
 					downloadPath := cliContext.String("download-path")
 					if downloadPath == "" {
-						downloadPath = filepath.Join(getAsdfDataDir(), "downloads", plugin.Name(), installVersion)
+						downloadPath = filepath.Join(
+							getAsdfDataDir(),
+							"downloads",
+							plugin.Name(),
+							installVersion,
+						)
 					}
 
-					return cmdInstall(cliContext.Context, plugin, installVersion, downloadPath, installPath)
+					return cmdInstall(
+						cliContext.Context,
+						plugin,
+						installVersion,
+						downloadPath,
+						installPath,
+					)
 				},
 			},
 			{
-				// ...
 				Name:  "uninstall",
 				Usage: "Uninstall a specific version",
 				Flags: []cli.Flag{pluginFlag, installPathFlag},
 				Action: func(cliContext *cli.Context) error {
-					plugin, _, err := resolvePluginFromContext(cliContext)
+					plugin, args, err := resolvePluginFromContext(cliContext)
 					if err != nil {
 						return err
 					}
 
 					installPath := cliContext.String("install-path")
+					if installPath == "" && len(args) > 0 {
+						uninstallVersion := args[0]
+
+						installPath = filepath.Join(
+							getAsdfDataDir(),
+							"installs",
+							plugin.Name(),
+							uninstallVersion,
+						)
+					}
+
 					if installPath == "" {
 						return errASDFInstallPathNotSet
 					}
@@ -562,14 +639,18 @@ func cmdListAll(ctx context.Context, plugin asdf.Plugin) error {
 		return fmt.Errorf("listing versions: %w", err)
 	}
 
-	fmt.Println(strings.Join(versions, " "))
+	_, _ = fmt.Fprintln(os.Stdout, strings.Join(versions, " "))
 
 	return nil
 }
 
 // cmdDownload implements the `download` subcommand for a plugins.
 // It downloads the requested version into the provided downloadPath and manages checksums.
-func cmdDownload(ctx context.Context, plugin asdf.Plugin, installVersion, downloadPath string) error {
+func cmdDownload(
+	ctx context.Context,
+	plugin asdf.Plugin,
+	installVersion, downloadPath string,
+) error {
 	if installVersion == "" {
 		return errASDFInstallVersionNotSet
 	}
@@ -578,19 +659,23 @@ func cmdDownload(ctx context.Context, plugin asdf.Plugin, installVersion, downlo
 		return errASDFDownloadPathNotSet
 	}
 
-	if err := os.MkdirAll(downloadPath, asdf.CommonDirectoryPermission); err != nil {
+	err := os.MkdirAll(downloadPath, asdf.CommonDirectoryPermission)
+	if err != nil {
 		return fmt.Errorf("creating download directory: %w", err)
 	}
 
-	if err := plugin.Download(ctx, installVersion, downloadPath); err != nil {
+	err = plugin.Download(ctx, installVersion, downloadPath)
+	if err != nil {
 		return err
 	}
 
-	if err := verifyToolSum(plugin.Name(), installVersion, downloadPath); err != nil {
+	err = verifyToolSum(plugin.Name(), installVersion, downloadPath)
+	if err != nil {
 		return err
 	}
 
-	if err := recordToolSum(plugin.Name(), installVersion, downloadPath); err != nil {
+	err = recordToolSum(plugin.Name(), installVersion, downloadPath)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to record checksum: %v\n", err)
 	}
 
@@ -599,7 +684,11 @@ func cmdDownload(ctx context.Context, plugin asdf.Plugin, installVersion, downlo
 
 // cmdInstall implements the `install` subcommand for a plugins.
 // It installs the requested version into installPath.
-func cmdInstall(ctx context.Context, plugin asdf.Plugin, installVersion, downloadPath, installPath string) error {
+func cmdInstall(
+	ctx context.Context,
+	plugin asdf.Plugin,
+	installVersion, downloadPath, installPath string,
+) error {
 	if installVersion == "" {
 		return errASDFInstallVersionNotSet
 	}
@@ -610,14 +699,19 @@ func cmdInstall(ctx context.Context, plugin asdf.Plugin, installVersion, downloa
 
 	actualDownloadPath := downloadPath
 	if actualDownloadPath == "" {
-		actualDownloadPath = filepath.Join(os.TempDir(), fmt.Sprintf("asdf-%s-%s", plugin.Name(), installVersion))
+		actualDownloadPath = filepath.Join(
+			os.TempDir(),
+			fmt.Sprintf("asdf-%s-%s", plugin.Name(), installVersion),
+		)
 	}
 
-	if err := os.MkdirAll(actualDownloadPath, asdf.CommonDirectoryPermission); err != nil {
+	err := os.MkdirAll(actualDownloadPath, asdf.CommonDirectoryPermission)
+	if err != nil {
 		return fmt.Errorf("creating download directory: %w", err)
 	}
 
-	if err := os.MkdirAll(installPath, asdf.CommonDirectoryPermission); err != nil {
+	err = os.MkdirAll(installPath, asdf.CommonDirectoryPermission)
+	if err != nil {
 		return fmt.Errorf("creating install directory: %w", err)
 	}
 
@@ -627,7 +721,7 @@ func cmdInstall(ctx context.Context, plugin asdf.Plugin, installVersion, downloa
 // cmdListBinPaths implements the `list-bin-paths` subcommand.
 // It prints the plugin's binary paths for the current installation.
 func cmdListBinPaths(plugin asdf.Plugin) error {
-	fmt.Println(plugin.ListBinPaths())
+	_, _ = fmt.Fprintln(os.Stdout, plugin.ListBinPaths())
 
 	return nil
 }
@@ -641,7 +735,7 @@ func cmdExecEnv(plugin asdf.Plugin, installPath string) error {
 
 	env := plugin.ExecEnv(installPath)
 	for key, value := range env {
-		fmt.Printf("export %s=%q\n", key, value)
+		_, _ = fmt.Fprintf(os.Stdout, "export %s=%q\n", key, value)
 	}
 
 	return nil
@@ -660,12 +754,12 @@ func cmdUninstall(ctx context.Context, plugin asdf.Plugin, installPath string) e
 // cmdLatestStable implements the `latest-stable` subcommand.
 // It prints the latest stable version matching an optional query.
 func cmdLatestStable(ctx context.Context, plugin asdf.Plugin, query string) error {
-	version, err := plugin.LatestStable(ctx, query)
+	latestVersion, err := plugin.LatestStable(ctx, query)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println(version)
+	_, _ = fmt.Fprintln(os.Stdout, latestVersion)
 
 	return nil
 }
@@ -674,7 +768,7 @@ func cmdLatestStable(ctx context.Context, plugin asdf.Plugin, query string) erro
 // It prints the legacy version file names recognized by the plugins.
 func cmdListLegacyFilenames(plugin asdf.Plugin) error {
 	filenames := plugin.ListLegacyFilenames()
-	fmt.Println(strings.Join(filenames, " "))
+	_, _ = fmt.Fprintln(os.Stdout, strings.Join(filenames, " "))
 
 	return nil
 }
@@ -686,12 +780,12 @@ func cmdParseLegacyFile(plugin asdf.Plugin, filePath string) error {
 		return errLegacyFilePathRequired
 	}
 
-	version, err := plugin.ParseLegacyFile(filePath)
+	parsedVersion, err := plugin.ParseLegacyFile(filePath)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println(version)
+	_, _ = fmt.Fprintln(os.Stdout, parsedVersion)
 
 	return nil
 }
@@ -699,7 +793,7 @@ func cmdParseLegacyFile(plugin asdf.Plugin, filePath string) error {
 // cmdHelpOverview prints the plugin's overview help section.
 func cmdHelpOverview(plugin asdf.Plugin) error {
 	help := plugin.Help()
-	fmt.Println(help.Overview)
+	_, _ = fmt.Fprintln(os.Stdout, help.Overview)
 
 	return nil
 }
@@ -707,7 +801,7 @@ func cmdHelpOverview(plugin asdf.Plugin) error {
 // cmdHelpDeps prints the plugin's dependency help section.
 func cmdHelpDeps(plugin asdf.Plugin) error {
 	help := plugin.Help()
-	fmt.Println(help.Deps)
+	_, _ = fmt.Fprintln(os.Stdout, help.Deps)
 
 	return nil
 }
@@ -715,7 +809,7 @@ func cmdHelpDeps(plugin asdf.Plugin) error {
 // cmdHelpConfig prints the plugin's configuration help section.
 func cmdHelpConfig(plugin asdf.Plugin) error {
 	help := plugin.Help()
-	fmt.Println(help.Config)
+	_, _ = fmt.Fprintln(os.Stdout, help.Config)
 
 	return nil
 }
@@ -723,9 +817,71 @@ func cmdHelpConfig(plugin asdf.Plugin) error {
 // cmdHelpLinks prints helpful links for the plugins.
 func cmdHelpLinks(plugin asdf.Plugin) error {
 	help := plugin.Help()
-	fmt.Println(help.Links)
+	_, _ = fmt.Fprintln(os.Stdout, help.Links)
 
 	return nil
+}
+
+// cmdWhich displays the path to an executable.
+func cmdWhich(toolName string) error {
+	ctx := context.Background()
+
+	// 1. Resolve version
+	toolVersion := resolveToolVersion(ctx, toolName)
+	if toolVersion == "" {
+		return fmt.Errorf("%w for %s", errNoVersionSet, toolName)
+	}
+
+	// 2. Get plugin
+	plugin, err := plugins.GetPlugin(toolName)
+	if err != nil {
+		return err
+	}
+
+	// 3. Construct install path
+	asdfDataDir := getAsdfDataDir()
+	installPath := filepath.Join(asdfDataDir, "installs", toolName, toolVersion)
+
+	if _, err := os.Stat(installPath); os.IsNotExist(err) {
+		return fmt.Errorf("%w: %s %s", errVersionNotInstalled, toolName, toolVersion)
+	}
+
+	// 4. Find executable
+	binPathsStr := plugin.ListBinPaths()
+	if binPathsStr == "" {
+		binPathsStr = "bin"
+	}
+
+	binPaths := strings.FieldsSeq(binPathsStr)
+	for binPath := range binPaths {
+		binDir := filepath.Join(installPath, binPath)
+
+		entries, err := os.ReadDir(binDir)
+		if err != nil {
+			continue
+		}
+
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+
+			// return the first executable found
+			// simplified logic, might need to match tool name or config
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+
+			if info.Mode()&0o111 != 0 {
+				_, _ = fmt.Fprintln(os.Stdout, filepath.Join(binDir, entry.Name()))
+
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("%w for %s %s", errNoExecutableFound, toolName, toolVersion)
 }
 
 // cmdReshim regenerates shims for all installed tool versions.
@@ -755,7 +911,8 @@ func cmdReshim() error {
 	}
 
 	for _, entry := range entries {
-		if err := os.Remove(filepath.Join(shimsDir, entry.Name())); err != nil {
+		err := os.Remove(filepath.Join(shimsDir, entry.Name()))
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to remove old shim %s: %v\n", entry.Name(), err)
 		}
 	}
@@ -767,6 +924,7 @@ func cmdReshim() error {
 	}
 
 	shimCount := 0
+
 	for toolName, version := range toolVersions {
 		installPath := filepath.Join(installsDir, toolName, version)
 
@@ -816,12 +974,23 @@ func cmdReshim() error {
 
 				// Remove existing shim if present
 				if err := os.Remove(shimPath); err != nil && !os.IsNotExist(err) {
-					fmt.Fprintf(os.Stderr, "Warning: failed to remove existing shim %s: %v\n", shimPath, err)
+					fmt.Fprintf(
+						os.Stderr,
+						"Warning: failed to remove existing shim %s: %v\n",
+						shimPath,
+						err,
+					)
 				}
 
 				// Create symlink to actual binary
 				if err := os.Symlink(binFile, shimPath); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to create shim for %s: %v\n", binary.Name(), err)
+					fmt.Fprintf(
+						os.Stderr,
+						"Warning: failed to create shim for %s: %v\n",
+						binary.Name(),
+						err,
+					)
+
 					continue
 				}
 
@@ -830,7 +999,7 @@ func cmdReshim() error {
 		}
 	}
 
-	fmt.Printf("Created %d shims in %s\n", shimCount, shimsDir)
+	_, _ = fmt.Fprintf(os.Stdout, "Created %d shims in %s\n", shimCount, shimsDir)
 
 	return nil
 }
@@ -850,12 +1019,15 @@ func cmdInstallPlugin() error {
 		}
 
 		if asdfPlugin.IsAsdfInstalled() {
-			fmt.Println("asdf is already installed in", asdfPlugin.GetShimsDir())
+			_, _ = fmt.Fprintln(os.Stdout, "asdf is already installed in", asdfPlugin.GetShimsDir())
 
 			if !asdfPlugin.IsAsdfInPath() {
-				fmt.Println("\nNote: asdf shims directory is not in your PATH.")
-				fmt.Println("Add the following to your shell configuration:")
-				fmt.Println(asdfPlugin.GetShellConfigInstructions(detectCurrentShell()))
+				_, _ = fmt.Fprintln(os.Stdout, "\nNote: asdf shims directory is not in your PATH.")
+				_, _ = fmt.Fprintln(os.Stdout, "Add the following to your shell configuration:")
+				_, _ = fmt.Fprintln(
+					os.Stdout,
+					asdfPlugin.GetShellConfigInstructions(detectCurrentShell()),
+				)
 			}
 		}
 	}
@@ -875,12 +1047,13 @@ func cmdInstallPlugin() error {
 			return err
 		}
 
-		if err := installer.Install(pluginName); err != nil {
+		err := installer.Install(pluginName)
+		if err != nil {
 			return err
 		}
 
 		pluginDir := filepath.Join(installer.PluginsDir, pluginName)
-		fmt.Printf("Installed plugin '%s' to %s\n", pluginName, pluginDir)
+		_, _ = fmt.Fprintf(os.Stdout, "Installed plugin '%s' to %s\n", pluginName, pluginDir)
 	}
 
 	return nil
@@ -926,7 +1099,8 @@ func cmdUpdateToolVersions() error {
 	}
 
 	if len(existingVersions) == 0 {
-		fmt.Println("No tools found in", toolVersionsPath)
+		_, _ = fmt.Fprintln(os.Stdout, "No tools found in", toolVersionsPath)
+
 		return nil
 	}
 
@@ -1018,17 +1192,30 @@ func cmdUpdateToolVersions() error {
 	})
 
 	var updated, failed, unchanged int
+
 	for i := range results {
 		res := results[i]
 
 		switch {
 		case res.Error != nil:
-			fmt.Printf("  %-20s %s (error: %v)\n", res.Name, res.OldVersion, res.Error)
+			_, _ = fmt.Fprintf(
+				os.Stdout,
+				"  %-20s %s (error: %v)\n",
+				res.Name,
+				res.OldVersion,
+				res.Error,
+			)
 
 			failed++
 
 		case res.Changed:
-			fmt.Printf("  %-20s %s -> %s\n", res.Name, res.OldVersion, res.NewVersion)
+			_, _ = fmt.Fprintf(
+				os.Stdout,
+				"  %-20s %s -> %s\n",
+				res.Name,
+				res.OldVersion,
+				res.NewVersion,
+			)
 
 			updated++
 
@@ -1037,9 +1224,32 @@ func cmdUpdateToolVersions() error {
 		}
 	}
 
-	fmt.Printf("\nUpdated: %d, Unchanged: %d, Failed: %d\n", updated, unchanged, failed)
+	_, _ = fmt.Fprintf(
+		os.Stdout,
+		"\nUpdated: %d, Unchanged: %d, Failed: %d\n",
+		updated,
+		unchanged,
+		failed,
+	)
 
 	return nil
+}
+
+// resolveToolVersion resolves the version of a tool from the nearest .tool-versions file.
+func resolveToolVersion(_ context.Context, toolName string) string {
+	// 1. Try to find .tool-versions
+	path, err := asdf.ResolveToolVersionsPath()
+	if err != nil {
+		return ""
+	}
+
+	// 2. Parse it
+	versions, err := parseToolVersions(path)
+	if err != nil {
+		return ""
+	}
+
+	return versions[toolName]
 }
 
 // parseToolVersions parses a .tool-versions file and returns a map of tool name to version.
@@ -1103,23 +1313,11 @@ func writeToolVersions(path string, versions map[string]string) error {
 // toolSumsFile is the filename used to store checksums for helper tools.
 const toolSumsFile = ".tool-sums"
 
-// parseToolSums parses a .tool-sums file and returns a map of "name:version" to hash.
-// parseToolSums loads a .tool-sums file into a map of "name:version" to
-// recorded checksum so downloads can be verified later.
-func parseToolSums(path string) (map[string]string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return make(map[string]string), nil
-		}
-
-		return nil, err
-	}
-	defer file.Close()
-
+// parseToolSumsFromReader parses tool sums from an io.Reader.
+func parseToolSumsFromReader(r io.Reader) (map[string]string, error) {
 	sums := make(map[string]string)
 
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -1134,7 +1332,8 @@ func parseToolSums(path string) (map[string]string, error) {
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
+	err := scanner.Err()
+	if err != nil {
 		return nil, err
 	}
 
@@ -1143,6 +1342,17 @@ func parseToolSums(path string) (map[string]string, error) {
 
 // writeToolSums writes the tool sums to a .tool-sums file.
 func writeToolSums(path string, sums map[string]string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	return writeToolSumsToWriter(file, sums)
+}
+
+// writeToolSumsToWriter writes the tool sums to an io.Writer.
+func writeToolSumsToWriter(w io.Writer, sums map[string]string) error {
 	// Parse keys to sort by name then version
 	type entry struct {
 		name    string
@@ -1166,17 +1376,18 @@ func writeToolSums(path string, sums map[string]string) error {
 		return entries[i].version < entries[j].version
 	})
 
-	file, err := os.Create(path)
-	if err != nil {
+	if _, err := fmt.Fprintln(w, "# Tool checksums - DO NOT EDIT"); err != nil {
 		return err
 	}
-	defer file.Close()
 
-	fmt.Fprintln(file, "# Tool checksums - DO NOT EDIT")
-	fmt.Fprintln(file, "# Format: name version sha256:hash")
+	if _, err := fmt.Fprintln(w, "# Format: name version sha256:hash"); err != nil {
+		return err
+	}
 
 	for i := range entries {
-		fmt.Fprintf(file, "%s %s %s\n", entries[i].name, entries[i].version, entries[i].hash)
+		if _, err := fmt.Fprintf(w, "%s %s %s\n", entries[i].name, entries[i].version, entries[i].hash); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -1281,11 +1492,66 @@ func getDownloadHash(downloadPath string) (string, error) {
 	return calculateDirHash(downloadPath)
 }
 
+// withToolSumsLock executes the given function with a file lock held on the tool sums file.
+// If readOnly is true, it acquires a shared lock. Otherwise, it acquires an exclusive lock.
+func withToolSumsLock(
+	path string,
+	flags int,
+	lockExclusive bool,
+	allowMissing bool,
+	fn func(file *os.File) error,
+) error {
+	file, err := os.OpenFile(path, flags, asdf.CommonFilePermission)
+	if err != nil {
+		if allowMissing && os.IsNotExist(err) {
+			return fn(nil)
+		}
+
+		return err
+	}
+	defer file.Close()
+
+	if err := lockToolSumsFile(int(file.Fd()), lockExclusive); err != nil {
+		return fmt.Errorf("locking file: %w", err)
+	}
+
+	defer func() {
+		unlockErr := unlockToolSumsFile(int(file.Fd()))
+		if unlockErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: unlocking tool sums file: %v\n", unlockErr)
+		}
+	}()
+
+	return fn(file)
+}
+
+func withToolSumsReadLock(path string, fn func(file *os.File) error) error {
+	return withToolSumsLock(path, os.O_RDONLY, false, true, fn)
+}
+
+func withToolSumsWriteLock(path string, fn func(file *os.File) error) error {
+	return withToolSumsLock(path, os.O_RDWR|os.O_CREATE, true, false, fn)
+}
+
 // verifyToolSum verifies the checksum of a downloaded tool.
 func verifyToolSum(name, version, downloadPath string) error {
 	sumsPath := toolSumsFile
 
-	sums, err := parseToolSums(sumsPath)
+	var sums map[string]string
+
+	err := withToolSumsReadLock(sumsPath, func(file *os.File) error {
+		if file == nil {
+			sums = make(map[string]string)
+
+			return nil
+		}
+
+		var err error
+
+		sums, err = parseToolSumsFromReader(file)
+
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("reading tool sums: %w", err)
 	}
@@ -1303,7 +1569,14 @@ func verifyToolSum(name, version, downloadPath string) error {
 	}
 
 	if actualHash != expectedHash {
-		return fmt.Errorf("%w for %s %s: expected %s, got %s", errChecksumMismatch, name, version, expectedHash, actualHash)
+		return fmt.Errorf(
+			"%w for %s %s: expected %s, got %s",
+			errChecksumMismatch,
+			name,
+			version,
+			expectedHash,
+			actualHash,
+		)
 	}
 
 	return nil
@@ -1313,25 +1586,35 @@ func verifyToolSum(name, version, downloadPath string) error {
 func recordToolSum(name, version, downloadPath string) error {
 	sumsPath := toolSumsFile
 
-	sums, err := parseToolSums(sumsPath)
-	if err != nil {
-		return fmt.Errorf("reading tool sums: %w", err)
-	}
-
 	hash, err := getDownloadHash(downloadPath)
 	if err != nil {
 		return fmt.Errorf("calculating hash: %w", err)
 	}
 
-	key := name + ":" + version
+	return withToolSumsWriteLock(sumsPath, func(file *os.File) error {
+		sums, err := parseToolSumsFromReader(file)
+		if err != nil {
+			return fmt.Errorf("reading tool sums: %w", err)
+		}
 
-	sums[key] = hash
+		key := name + ":" + version
 
-	if err := writeToolSums(sumsPath, sums); err != nil {
-		return fmt.Errorf("writing tool sums: %w", err)
-	}
+		sums[key] = hash
 
-	return nil
+		if err := file.Truncate(0); err != nil {
+			return fmt.Errorf("truncating file: %w", err)
+		}
+
+		if _, err := file.Seek(0, 0); err != nil {
+			return fmt.Errorf("seeking file: %w", err)
+		}
+
+		if err := writeToolSumsToWriter(file, sums); err != nil {
+			return fmt.Errorf("writing tool sums: %w", err)
+		}
+
+		return nil
+	})
 }
 
 // cmdGenerateToolSums generates checksums for all installed tools (internal command for selftest).
@@ -1383,7 +1666,7 @@ func cmdGenerateToolSums() error {
 		return fmt.Errorf("writing %s: %w", toolSumsFile, err)
 	}
 
-	fmt.Printf("Generated checksums for %d tools\n", len(sums))
+	_, _ = fmt.Fprintf(os.Stdout, "Generated checksums for %d tools\n", len(sums))
 
 	return nil
 }

@@ -48,33 +48,35 @@ func NewServer() *Server {
 		releases: make(map[string][]ReleaseResponse),
 	}
 
-	mock.HTTPServer = httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, req *http.Request) {
-		path := req.URL.Path
+	mock.HTTPServer = httptest.NewServer(
+		http.HandlerFunc(func(responseWriter http.ResponseWriter, req *http.Request) {
+			path := req.URL.Path
 
-		if strings.Contains(path, "/git/refs/tags") {
-			repoPath := extractRepoPath(path, "/git/refs/tags")
-			if tags, ok := mock.tags[repoPath]; ok {
-				responseWriter.Header().Set("Content-Type", "application/json")
+			if strings.Contains(path, "/git/refs/tags") {
+				repoPath := extractRepoPath(path, "/git/refs/tags")
+				if tags, ok := mock.tags[repoPath]; ok {
+					responseWriter.Header().Set("Content-Type", "application/json")
 
-				_ = json.NewEncoder(responseWriter).Encode(tags) //nolint:errcheck // test mock ignores encoding errors
+					_ = json.NewEncoder(responseWriter).Encode(tags)
 
-				return
+					return
+				}
 			}
-		}
 
-		if strings.Contains(path, "/releases") {
-			repoPath := extractRepoPath(path, "/releases")
-			if releases, ok := mock.releases[repoPath]; ok {
-				responseWriter.Header().Set("Content-Type", "application/json")
+			if strings.Contains(path, "/releases") {
+				repoPath := extractRepoPath(path, "/releases")
+				if releases, ok := mock.releases[repoPath]; ok {
+					responseWriter.Header().Set("Content-Type", "application/json")
 
-				_ = json.NewEncoder(responseWriter).Encode(releases) //nolint:errcheck // test mock ignores encoding errors
+					_ = json.NewEncoder(responseWriter).Encode(releases)
 
-				return
+					return
+				}
 			}
-		}
 
-		responseWriter.WriteHeader(http.StatusNotFound)
-	}))
+			responseWriter.WriteHeader(http.StatusNotFound)
+		}),
+	)
 
 	return mock
 }

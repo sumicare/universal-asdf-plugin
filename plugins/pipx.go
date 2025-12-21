@@ -52,11 +52,7 @@ func NewPipxPlugin() asdf.Plugin {
 		SkipDownload:      true,
 		SkipExtract:       true,
 		ExpectedArtifacts: []string{"bin/pipx"},
-		BuildVersion: func(ctx context.Context, version, downloadPath, installPath string) error {
-			if err := asdf.EnsureToolchains(ctx, "python"); err != nil {
-				return err
-			}
-
+		BuildVersion: func(_ context.Context, version, downloadPath, installPath string) error {
 			srcPath := filepath.Join(downloadPath, "pipx.pyz")
 
 			binDir := filepath.Join(installPath, "bin")
@@ -103,6 +99,11 @@ exec python3 "%s" "$@"
 // Name returns the plugin name.
 func (*PipxPlugin) Name() string {
 	return "pipx"
+}
+
+// Dependencies returns the list of plugins that must be installed before pipx.
+func (*PipxPlugin) Dependencies() []string {
+	return []string{"python"}
 }
 
 // ListBinPaths returns the binary paths for pipx installations.
@@ -160,6 +161,7 @@ func (*PipxPlugin) Download(ctx context.Context, version, downloadPath string) e
 	pyzPath := filepath.Join(downloadPath, "pipx.pyz")
 	if info, err := os.Stat(pyzPath); err == nil && info.Size() > 1024 {
 		asdf.Msgf("Using cached download for pipx %s", version)
+
 		return nil
 	}
 
@@ -196,7 +198,8 @@ func (*PipxPlugin) Download(ctx context.Context, version, downloadPath string) e
 // Install installs pipx from the downloaded .pyz file.
 func (p *PipxPlugin) Install(ctx context.Context, version, downloadPath, installPath string) error {
 	// Download if needed
-	if err := p.Download(ctx, version, downloadPath); err != nil {
+	err := p.Download(ctx, version, downloadPath)
+	if err != nil {
 		return err
 	}
 

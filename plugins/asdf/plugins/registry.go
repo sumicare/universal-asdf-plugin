@@ -331,7 +331,7 @@ var (
 // It returns an error if the plugin is unknown so callers can surface
 // a helpful message to users of the CLI.
 //
-//nolint:ireturn // factory function intentionally returns the asdf.Plugin interface
+
 func GetPlugin(name string) (asdf.Plugin, error) {
 	plugin := DefaultRegistry.Get(name)
 	if plugin == nil {
