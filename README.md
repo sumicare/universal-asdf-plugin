@@ -1,4 +1,4 @@
-# Universal ASDF Plugin 🚀
+# Universal ASDF Plugin 
 
 [![Test](https://github.com/sumicare/universal-asdf-plugin/actions/workflows/test.yml/badge.svg)](https://github.com/sumicare/universal-asdf-plugin/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/sumicare/universal-asdf-plugin/graph/badge.svg)](https://codecov.io/gh/sumicare/universal-asdf-plugin)
@@ -9,13 +9,13 @@
 
 A unified collection of [asdf](https://asdf-vm.com) plugins written in Go, replacing traditional bash-scripted plugins with a single, tested, and maintainable binary.
 
-## Why ❓
+## Why 
 
-- 🔐 **Security** — Bash plugins scattered across repositories are a valid attack surface
-- ✅ **Reliability** — Go provides decent testing capabilities and reproducibility
-- 🧰 **Maintenance** — Single codebase for 60+ tools instead of maintaining separate plugins with kitchen-sink conventions
+- **Security** — Bash plugins scattered across repositories are a valid attack surface
+- **Reliability** — Go provides decent testing capabilities and reproducibility
+- **Maintenance** — Single codebase for 60+ tools instead of maintaining separate plugins with kitchen-sink conventions
 
-## Quick Start 🚀
+## Quick Start
 
 ```bash
 # 1. Download the latest release
@@ -45,10 +45,10 @@ asdf install nodejs latest
 asdf global go latest
 ```
 
-## Supported Tools 🧩🛠️
+## Supported Tools
 
 <details>
-<summary>▶️ Click to expand full list (60+ tools)</summary>
+<summary> Click to expand full list (60+ tools)</summary>
 
 | Tool | Description |
 |------|-------------|
@@ -115,7 +115,7 @@ asdf global go latest
 
 </details>
 
-## Usage 🧪
+## Usage
 
 ```bash
 # List available versions
@@ -134,7 +134,7 @@ universal-asdf-plugin help <tool>
 universal-asdf-plugin update-tool-versions
 ```
 
-## Development 🛠️
+## Development
 
 ### Prerequisites
 
@@ -190,7 +190,7 @@ npm install -g cspell
 # inspect .code-workspace dictionary afterwards
 ```
 
-## License 📄
+## License
 
 Copyright 2025 Sumicare
 
